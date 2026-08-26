@@ -32,6 +32,7 @@
     }
     .dot { width: 10px; height: 10px; border-radius: 50%; background: #4b5666; }
     .dot.on { background: #3ddc84; box-shadow: 0 0 0 4px rgba(61, 220, 132, 0.25); }
+    .dot.paused { background: #f29900; box-shadow: 0 0 0 4px rgba(242, 153, 0, 0.25); }
     .top .t { font-weight: 800; font-size: 16px; }
     .top .c { margin-left: auto; font-size: 14px; font-weight: 800; color: #3ddc84; }
 
@@ -40,7 +41,7 @@
     /* 카메라 뷰파인더 */
     .camwrap {
       position: relative; background: #000; border-radius: 14px;
-      aspect-ratio: 4 / 3; max-height: 240px; overflow: hidden; border: 1.5px solid var(--line);
+      aspect-ratio: 4 / 3; max-height: 230px; overflow: hidden; border: 1.5px solid var(--line);
     }
     video { width: 100%; height: 100%; object-fit: cover; display: block; }
     canvas { display: none; }
@@ -55,23 +56,28 @@
       position: absolute; left: 0; right: 0; bottom: 8px; text-align: center;
       font-size: 12px; font-weight: 700; color: #fff; text-shadow: 0 1px 3px #000;
     }
+    .cam-overlay {
+      position: absolute; inset: 0; background: rgba(13, 20, 32, 0.85);
+      display: flex; align-items: center; justify-content: center; font-weight: 800; font-size: 16px;
+      color: #3ddc84; z-index: 5;
+    }
 
-    /* 🌟 결과 표시 카드 (완료 화면) */
+    /* 🌟 결과 표시 카드 (초록색 완료 창) */
     .result {
       position: relative;
-      padding: 20px 16px; text-align: center; min-height: 200px; display: flex;
+      padding: 22px 16px; text-align: center; min-height: 210px; display: flex;
       flex-direction: column; justify-content: center; background: var(--card);
-      border: 2px solid var(--line); border-radius: 16px;
+      border: 2.5px solid var(--line); border-radius: 16px;
       transition: all 0.25s ease-out; overflow: hidden;
     }
     .result.pop { animation: pop 0.35s ease-out; }
     @keyframes pop {
-      0% { transform: scale(0.96); }
+      0% { transform: scale(0.95); }
       50% { transform: scale(1.02); }
       100% { transform: scale(1); }
     }
 
-    .result .ic { font-size: 42px; line-height: 1; margin-bottom: 6px; }
+    .result .ic { font-size: 44px; line-height: 1; margin-bottom: 6px; }
     .result .msg { font-size: 24px; font-weight: 900; letter-spacing: -0.5px; }
     .result .nm { font-size: 23px; font-weight: 900; margin-top: 8px; color: #fff; }
     .result .sub { font-size: 14.5px; color: var(--sub); margin-top: 3px; }
@@ -79,7 +85,7 @@
     /* 성공(완료) 스타일 */
     .result.ok {
       border-color: var(--ok-border); background: var(--ok-bg);
-      box-shadow: 0 0 24px rgba(15, 157, 88, 0.4);
+      box-shadow: 0 0 30px rgba(15, 157, 88, 0.45);
     }
     .result.ok .msg { color: #3ddc84; }
     
@@ -110,12 +116,12 @@
 
     .time-stamp { font-size: 12px; color: #8b97a8; margin-top: 8px; }
 
-    /* ⏳ 타이머 프로그레스 바 */
+    /* ⏳ 7초 타이머 게이지 바 */
     .timer-bar {
-      position: absolute; bottom: 0; left: 0; height: 4px; background: #3ddc84;
+      position: absolute; bottom: 0; left: 0; height: 5px; background: #3ddc84;
       width: 100%; transform-origin: left;
     }
-    .timer-bar.running { animation: timer 5s linear forwards; }
+    .timer-bar.running { animation: timer 7s linear forwards; }
     @keyframes timer {
       from { transform: scaleX(1); }
       to { transform: scaleX(0); }
@@ -123,10 +129,11 @@
 
     /* 다음 사람 바로 스캔 버튼 */
     .btn-next {
-      background: rgba(255, 255, 255, 0.12); color: #fff; border: 1px solid rgba(255, 255, 255, 0.25);
-      border-radius: 8px; padding: 7px 14px; font-size: 13px; font-weight: 700; margin-top: 10px; cursor: pointer;
+      background: #1f7ae0; color: #fff; border: 0;
+      border-radius: 10px; padding: 10px 16px; font-size: 14px; font-weight: 800; margin-top: 12px;
+      cursor: pointer; box-shadow: 0 2px 8px rgba(31,122,224,0.4);
     }
-    .btn-next:active { background: rgba(255, 255, 255, 0.25); }
+    .btn-next:active { background: #1662b8; }
 
     /* 수동 입력 및 하단 조작부 */
     .control-box { background: var(--card); border: 1px solid var(--line); border-radius: 14px; padding: 14px; }
@@ -175,6 +182,7 @@
         <canvas id="cv"></canvas>
         <div class="frame"><i></i></div>
         <div class="camhint">QR 코드를 비추면 즉시 자동 처리됩니다</div>
+        <div class="cam-overlay hide" id="camOverlay">✅ 완료되었습니다 (7초 대기 중)</div>
       </div>
 
       <!-- 🌟 결과 안내 카드 -->
@@ -213,8 +221,11 @@
     var WEB_APP_URL = 'https://script.google.com/macros/s/AKfycbztTWFK3i3F3sjXkeZujNA53ZSnZet_QKWyGIi9cwhVcrFrgPW1gu4FsklnXtqceQdl/exec';
     var STAFF_KEY   = 'swc2026';
 
-    var count = 0, busy = false, stream = null, raf = null, lastCode = '', lastAt = 0;
-    var holdUntil = 0; // 🌟 완료 화면 유지 타이머
+    var count = 0;
+    var isProcessing = false;   // 서버 통신 중 여부
+    var isPaused = false;       // 🌟 7초간 카메라 완전 락(잠금) 여부
+    var lockTimer = null;
+    var lastScannedValue = '';
 
     var v  = document.getElementById('v');
     var cv = document.getElementById('cv');
@@ -239,27 +250,25 @@
     }
 
     function handleStreamSuccess(s){
-      stream = s;
       v.srcObject = s;
       v.setAttribute('playsinline', '');
       v.play().then(function(){
-        document.getElementById('dot').classList.add('on');
+        document.getElementById('dot').className = 'dot on';
         loop();
       }).catch(function(){});
     }
 
     function restartCamera(){
-      if (raf) cancelAnimationFrame(raf);
-      if (stream) stream.getTracks().forEach(function(t){ t.stop(); });
-      document.getElementById('dot').classList.remove('on');
-      setTimeout(startCamera, 300);
+      unlockScan();
+      startCamera();
     }
 
-    /* ── 2. 실시간 프레임 스캔 (5초 유지 중에는 스캔 중지) ── */
+    /* ── 2. 🌟 실시간 프레임 스캔 (잠금 상태일 땐 0% 스캔 차단) ── */
     function loop(){
-      raf = requestAnimationFrame(loop);
-      // 🌟 완료 화면 유지 중이거나 처리 중일 때는 스캔 건너뛰기
-      if (busy || Date.now() < holdUntil || v.readyState !== v.HAVE_ENOUGH_DATA) return;
+      requestAnimationFrame(loop);
+      
+      // 🛑 잠금 상태이거나 처리 중일 땐 비디오 분석 자체를 아예 중단
+      if (isPaused || isProcessing || v.readyState !== v.HAVE_ENOUGH_DATA) return;
       
       var w = v.videoWidth, h = v.videoHeight;
       if (!w || !h) return;
@@ -268,14 +277,20 @@
       ctx.drawImage(v, (w - size)/2, (h - size)/2, size, size, 0, 0, 500, 500);
       var img = ctx.getImageData(0, 0, 500, 500);
       var code = jsQR(img.data, img.width, img.height, { inversionAttempts: 'dontInvert' });
-      if (code && code.data) handleScan(code.data);
+      
+      if (code && code.data) {
+        var scanned = String(code.data).trim();
+        // 방금 처리한 사람과 같은 QR이면 잠금 중복 방지
+        if (scanned === lastScannedValue) return;
+        handleScan(scanned);
+      }
     }
 
     /* ── 3. 사진 파일로 QR 디코딩 ── */
     function onScanFile(input) {
       var file = input.files[0];
       if (!file) return;
-      busy = true;
+      isProcessing = true;
       show('', '⏳', '사진 분석 중...', null, null, 'QR 코드를 판독하고 있습니다.');
 
       var reader = new FileReader();
@@ -299,9 +314,9 @@
             code = jsQR(imgData.data, imgData.width, imgData.height, { inversionAttempts: 'attemptBoth' });
           }
 
-          busy = false;
+          isProcessing = false;
           if (code && code.data) {
-            handleScan(code.data);
+            handleScan(String(code.data).trim());
           } else {
             soundErr();
             show('err', '❌', 'QR 인식 실패', null, null, 'QR 코드가 선명하게 나오도록 다시 촬영해 주세요.');
@@ -313,12 +328,15 @@
       input.value = '';
     }
 
-    /* ── 4. 출석 체크 API 전송 ── */
+    /* ── 4. 🌟 서버로 출석 전송 및 즉시 카메라 잠금 ── */
     function handleScan(raw){
-      var now = Date.now();
-      if (raw === lastCode && now - lastAt < 6000) return;
-      lastCode = raw; lastAt = now;
-      busy = true;
+      if (isPaused || isProcessing) return;
+      
+      // 🔒 스캔되는 순간 즉시 카메라 스캔을 잠금
+      isPaused = true;
+      isProcessing = true;
+      lastScannedValue = raw;
+
       playBeep(880, 0.06);
       show('', '⏳', '출석 처리 중...', null, null, '명단 대조 및 시트 기록 중');
 
@@ -329,12 +347,13 @@
       })
       .then(function(res){ return res.json(); })
       .then(function(r){
+        isProcessing = false;
         render(r);
-        busy = false;
       })
       .catch(function(err){
+        isProcessing = false;
+        isPaused = false; // 통신 오류 시엔 잠금 해제
         show('err', '⚠', '통신 오류', null, null, '인터넷 연결을 확인하고 다시 시도해 주세요.');
-        busy = false;
       });
     }
 
@@ -342,18 +361,22 @@
       var el = document.getElementById('manual');
       var t = el.value.trim();
       if (!t) return;
-      el.value = ''; lastCode = '';
+      el.value = '';
+      lastScannedValue = '';
       handleScan(t);
     }
     document.getElementById('manual').addEventListener('keydown', function(e){
       if (e.key === 'Enter') manualCheck();
     });
 
-    /* ── 5. 🌟 출석 완료 화면 렌더링 (5초 유지) ── */
+    /* ── 5. 🌟 출석 완료 화면 렌더링 (7초 동안 절대 변경 없음) ── */
     function render(r){
       var el = document.getElementById('res');
       el.classList.remove('pop');
-      void el.offsetWidth; // CSS 애니메이션 리셋
+      void el.offsetWidth;
+
+      // 상단 점 상태 주황색(잠금) 표시
+      document.getElementById('dot').className = 'dot paused';
 
       if (r.ok){
         count++;
@@ -361,9 +384,6 @@
         soundSuccess();
         vibe([50, 60, 50]);
         
-        // 🌟 5초 동안 화면 고정
-        holdUntil = Date.now() + 5000;
-
         var p = r.person || {};
         var badges = 
           '<div class="chips">' +
@@ -371,16 +391,14 @@
             '<div class="badge-box ticket"><div class="badge-label">응모권 번호</div><div class="badge-value">' + (p.응모권 || '-') + '번</div></div>' +
           '</div>' +
           '<div class="time-stamp">⏱ 접수완료: ' + (p.참석일시 || '') + '</div>' +
-          '<button class="btn-next" onclick="nextScanNow()">⏩ 다음 참가자 바로 스캔</button>';
+          '<button class="btn-next" onclick="unlockScan()">⏩ 다음 참가자 바로 스캔</button>';
 
         show('ok pop', '✅', '참석 확인되었습니다', p, badges, '');
-        startTimerBar(5000);
+        lockCameraForSeconds(7); // 🌟 7초간 유지
 
       } else if (r.code === 'ALREADY'){
         soundWarn();
         vibe([120, 80, 120]);
-        holdUntil = Date.now() + 4000; // 4초 유지
-
         var p = r.person || {};
         var badges = 
           '<div class="chips">' +
@@ -388,19 +406,20 @@
             '<div class="badge-box ticket"><div class="badge-label">응모권 번호</div><div class="badge-value">' + (p.응모권 || '-') + '번</div></div>' +
           '</div>' +
           '<div class="time-stamp" style="color:#ffc94d">⚠ 기존 접수시간: ' + (p.참석일시 || '') + '</div>' +
-          '<button class="btn-next" onclick="nextScanNow()">⏩ 다음 참가자 바로 스캔</button>';
+          '<button class="btn-next" onclick="unlockScan()">⏩ 다음 참가자 바로 스캔</button>';
 
         show('warn pop', '⚠', '이미 출석 완료된 QR', p, badges, '');
-        startTimerBar(4000);
+        lockCameraForSeconds(5); // 5초간 유지
 
       } else if (r.code === 'NOT_FOUND'){
         soundErr();
         vibe([200, 100, 200]);
-        holdUntil = Date.now() + 4500; // 4.5초 유지
         show('err pop', '❌', '사전신청 명단 없음', null, null, '사전신청 명단에서 확인되지 않습니다.\n현장 접수대(안내데스크) 직원에게 문의해 주세요.');
+        lockCameraForSeconds(5);
       } else {
         soundErr();
         show('err pop', '❌', r.msg || '확인 불가', null, null, '');
+        lockCameraForSeconds(4);
       }
     }
 
@@ -418,19 +437,33 @@
       el.innerHTML = h;
     }
 
-    /* ── 6. 타이머 바 및 즉시 다음 스캔 ── */
-    function startTimerBar(ms){
+    /* ── 6. 🌟 7초 타이머 & 수동 즉시 해제 ── */
+    function lockCameraForSeconds(sec){
+      isPaused = true;
+      document.getElementById('camOverlay').classList.remove('hide');
+      document.getElementById('camOverlay').textContent = '✅ 출석 확인 완료 (' + sec + '초 유지)';
+
       var bar = document.getElementById('timerBar');
-      if (!bar) return;
-      bar.classList.remove('hide');
-      bar.style.animation = 'none';
-      void bar.offsetWidth;
-      bar.style.animation = 'timer ' + (ms/1000) + 's linear forwards';
+      if (bar) {
+        bar.classList.remove('hide');
+        bar.style.animation = 'none';
+        void bar.offsetWidth;
+        bar.style.animation = 'timer ' + sec + 's linear forwards';
+      }
+
+      if (lockTimer) clearTimeout(lockTimer);
+      lockTimer = setTimeout(function(){
+        unlockScan();
+      }, sec * 1000);
     }
 
-    function nextScanNow(){
-      holdUntil = 0;
-      lastCode = '';
+    function unlockScan(){
+      if (lockTimer) clearTimeout(lockTimer);
+      isPaused = false;
+      isProcessing = false;
+      lastScannedValue = ''; // 이전 사람 토큰 초기화
+      document.getElementById('camOverlay').classList.add('hide');
+      document.getElementById('dot').className = 'dot on';
       show('', '📷', '스캔 대기 중', null, null, '다음 참가자 QR을 비춰주세요.');
     }
 
