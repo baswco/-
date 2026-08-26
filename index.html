@@ -12,23 +12,16 @@
 
 <script>
 /* ══════════════════════════════════════════════════════════════
- *  ★★★ 여기 두 줄만 채우면 됩니다 ★★★
- *
- *  1) WEBAPP_URL — 스프레드시트 [사대회 시스템] → 현장 접수 스캐너 주소
- *                  에서 나오는 주소 중 물음표(?) 앞부분까지만
- *                  예) https://script.google.com/macros/s/AKfycb.../exec
- *
- *  2) STAFF_KEY  — 00_설정.gs 의 STAFF_KEY 값과 똑같이
- *
- *  채워 넣으면 직원들은 아무것도 입력할 필요 없이
- *  주소만 열면 바로 카메라가 켜집니다.
+ *  설정 — 이미 채워져 있습니다. 값이 바뀌면 여기만 고치세요.
  * ══════════════════════════════════════════════════════════════ */
-var WEBAPP_URL = '';
-var STAFF_KEY  = '';
+var WEBAPP_URL = 'https://script.google.com/macros/s/AKfycbztTWFK3i3F3sjXkeZujNA53ZSnZet_QKWyGIi9cwhVcrFrgPW1gu4FsklnXtqceQdl/exec';
+var STAFF_KEY  = 'swc2026';
+
+var HOLD_MS = 5000;   // 접수 결과를 화면에 유지하는 시간 (5초)
 </script>
 
 <style>
-  :root{--line:#2b3646;--ok:#3ddc84;--warn:#ffc94d;--err:#ff6b5e;--accent:#1f7ae0}
+  :root{--line:#2b3646;--ok:#0f9d58;--warn:#e8a33d;--err:#d93025;--accent:#1f7ae0}
   *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
   html,body{margin:0;height:100%}
   body{background:#0d1420;color:#fff;
@@ -37,50 +30,59 @@ var STAFF_KEY  = '';
        padding-top:env(safe-area-inset-top);padding-bottom:env(safe-area-inset-bottom)}
   .wrap{max-width:520px;margin:0 auto;min-height:100%;display:flex;flex-direction:column}
 
-  .top{padding:12px 16px;display:flex;align-items:center;gap:10px;border-bottom:1px solid var(--line)}
+  .top{padding:11px 16px;display:flex;align-items:center;gap:10px;border-bottom:1px solid var(--line)}
   .top .dot{width:9px;height:9px;border-radius:50%;background:#4b5666;flex:none;transition:.2s}
-  .top .dot.on{background:var(--ok);box-shadow:0 0 0 4px rgba(61,220,132,.2)}
+  .top .dot.on{background:#3ddc84;box-shadow:0 0 0 4px rgba(61,220,132,.2)}
   .top .t{font-weight:800;font-size:15px}
   .top .c{margin-left:auto;font-size:12.5px;color:#8b97a8}
 
-  .camwrap{position:relative;background:#000;aspect-ratio:1/1;overflow:hidden}
+  /* 카메라 */
+  .camwrap{position:relative;background:#000;flex:1;min-height:38vh;overflow:hidden}
   video{width:100%;height:100%;object-fit:cover;display:block}
   canvas{display:none}
   .frame{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;pointer-events:none}
-  .frame i{width:62%;aspect-ratio:1/1;border:3px solid rgba(255,255,255,.85);border-radius:20px;
-           box-shadow:0 0 0 2000px rgba(0,0,0,.35)}
-  .camhint{position:absolute;left:0;right:0;bottom:12px;text-align:center;font-size:13px;
-           color:rgba(255,255,255,.85);text-shadow:0 1px 3px #000}
-  .camerr{padding:22px 20px;text-align:center;color:var(--warn);font-size:13.5px;line-height:1.7}
+  .frame i{width:66%;aspect-ratio:1/1;border:3px solid rgba(255,255,255,.9);border-radius:22px;
+           box-shadow:0 0 0 2000px rgba(0,0,0,.32)}
+  .camhint{position:absolute;left:0;right:0;bottom:10px;text-align:center;font-size:13px;
+           color:rgba(255,255,255,.9);text-shadow:0 1px 4px #000;pointer-events:none}
+  .camerr{padding:24px 20px;text-align:center;color:#ffc94d;font-size:14px;line-height:1.7;flex:1}
   .camerr b{color:#fff}
 
-  .result{padding:18px 16px;text-align:center;min-height:168px;display:flex;
-          flex-direction:column;justify-content:center;gap:4px}
-  .result .ic{font-size:44px;line-height:1}
-  .result .msg{font-size:23px;font-weight:800;margin-top:6px;white-space:pre-line}
-  .result .nm{font-size:18px;font-weight:700;margin-top:10px}
-  .result .sub{font-size:14px;color:#9aa7b8;white-space:pre-line}
-  .result.ok .msg{color:var(--ok)}
-  .result.warn .msg{color:var(--warn)}
-  .result.err .msg{color:var(--err)}
-  .chips{display:flex;gap:8px;justify-content:center;margin-top:12px;flex-wrap:wrap}
-  .chip{background:#1a2434;border:1px solid var(--line);border-radius:999px;padding:7px 14px;font-size:13.5px}
-  .chip b{color:#fff;font-size:17px}
+  /* 결과 띠 — 접수대에서 멀리서도 보이게 */
+  .res{padding:20px 16px 16px;text-align:center;transition:background .18s;
+       background:#111a26;position:relative;overflow:hidden}
+  .res.ok   {background:var(--ok)}
+  .res.warn {background:var(--warn)}
+  .res.err  {background:var(--err)}
+  .res .ic{font-size:34px;line-height:1}
+  .res .msg{font-size:28px;font-weight:800;margin-top:2px;line-height:1.25;white-space:pre-line}
+  .res .nm{font-size:22px;font-weight:800;margin-top:10px}
+  .res .sub{font-size:14.5px;opacity:.92;margin-top:3px;white-space:pre-line;line-height:1.5}
+  .res.idle .msg{font-size:19px;font-weight:600;color:#8b97a8}
+  .res.idle .ic{font-size:26px;opacity:.5}
 
-  .bar{margin-top:auto;padding:14px 16px 22px;border-top:1px solid var(--line);background:#0b111b}
+  .chips{display:flex;gap:9px;justify-content:center;margin-top:14px;flex-wrap:wrap}
+  .chip{background:rgba(255,255,255,.2);border-radius:999px;padding:9px 16px;font-size:14px;font-weight:600}
+  .chip b{font-size:22px;font-weight:800}
+
+  /* 5초 카운트 막대 */
+  .hold{position:absolute;left:0;bottom:0;height:4px;background:rgba(255,255,255,.55);width:0}
+  .hold.run{animation:shrink var(--hold,5s) linear forwards}
+  @keyframes shrink{from{width:100%}to{width:0}}
+
+  .bar{padding:12px 16px 20px;border-top:1px solid var(--line);background:#0b111b}
   .row{display:flex;gap:8px}
   input[type=text]{flex:1;padding:13px;border-radius:10px;border:1px solid var(--line);
                    background:#151d2b;color:#fff;font-size:15px;font-family:inherit;outline:none}
   input::placeholder{color:#5d6a7d}
   button{border:0;border-radius:10px;font-family:inherit;font-weight:700;cursor:pointer;font-size:15px}
   .b1{background:var(--accent);color:#fff;padding:13px 18px}
-  .bshoot{background:#1a2434;color:#dce6f2;padding:14px;width:100%;margin-top:9px;
-          border:1px solid var(--line);font-size:15.5px}
-  .bshoot.primary{background:linear-gradient(160deg,#1f7ae0,#1559ab);color:#fff;border:0;
-                  padding:18px;font-size:17px}
-  .b2{background:none;color:#5d6a7d;padding:10px;width:100%;margin-top:4px;
-      border:0;font-size:12.5px;text-decoration:underline}
-  .note{font-size:12px;color:#7c899b;margin-top:8px;line-height:1.55;text-align:center}
+  .links{display:flex;justify-content:center;gap:18px;margin-top:10px}
+  .links button{background:none;color:#6b7a8d;font-size:12.5px;text-decoration:underline;
+                padding:6px 2px;font-weight:500}
+  .bshoot{background:linear-gradient(160deg,#1f7ae0,#1559ab);color:#fff;padding:17px;
+          width:100%;margin-top:10px;font-size:17px;border:0}
+  .note{font-size:12px;color:#7c899b;margin-top:9px;line-height:1.55;text-align:center}
   .hide{display:none !important}
 
   .setup{padding:40px 22px;text-align:center}
@@ -88,7 +90,7 @@ var STAFF_KEY  = '';
   .setup p{font-size:14px;color:#9aa7b8;line-height:1.65;margin:0 0 20px}
   .setup input{width:100%;margin-bottom:10px;text-align:center}
   .setup .b1{width:100%;padding:15px}
-  .setup .err{color:var(--err);font-size:13.5px;margin-top:12px;font-weight:700}
+  .setup .err{color:#ff6b5e;font-size:13.5px;margin-top:12px;font-weight:700}
 </style>
 </head>
 <body>
@@ -99,7 +101,7 @@ var STAFF_KEY  = '';
   <div class="setup hide" id="setup">
     <div style="font-size:44px">★</div>
     <h2>현장 접수 스캐너</h2>
-    <p>담당자에게 받은 두 값을 넣어주세요.<br>이 기기에 저장되어 다시 묻지 않습니다.</p>
+    <p>담당자에게 받은 두 값을 넣어주세요.</p>
     <input type="text" id="s_url" placeholder="웹앱 주소 (…/exec)" autocomplete="off" autocapitalize="off" spellcheck="false">
     <input type="text" id="s_key" placeholder="직원 접속키" autocomplete="off" autocapitalize="off" spellcheck="false">
     <button class="b1" onclick="saveSetup()">저장하고 시작</button>
@@ -108,6 +110,7 @@ var STAFF_KEY  = '';
 
   <!-- 스캐너 -->
   <div id="main" class="hide" style="flex-direction:column;flex:1">
+
     <div class="top">
       <span class="dot" id="dot"></span>
       <span class="t">현장 접수 스캐너</span>
@@ -118,13 +121,14 @@ var STAFF_KEY  = '';
       <video id="v" playsinline muted autoplay></video>
       <canvas id="cv"></canvas>
       <div class="frame"><i></i></div>
-      <div class="camhint">참가자의 카카오톡 QR을 화면 안에 맞춰주세요</div>
+      <div class="camhint">QR을 네모 안에 갖다 대세요</div>
     </div>
     <div class="camerr hide" id="camerr"></div>
 
-    <div class="result" id="res">
+    <div class="res idle" id="res">
       <div class="ic">▣</div>
-      <div class="msg" style="font-size:18px;color:#9aa7b8">카메라를 켜는 중...</div>
+      <div class="msg">카메라를 켜는 중...</div>
+      <div class="hold" id="hold"></div>
     </div>
 
     <div class="bar">
@@ -133,16 +137,19 @@ var STAFF_KEY  = '';
         <button class="b1" onclick="manualCheck()">확인</button>
       </div>
 
-      <button class="bshoot" id="shootBtn" onclick="document.getElementById('fileCam').click()">
+      <!-- 카메라가 막힌 기기에서만 크게 나옵니다 -->
+      <button class="bshoot hide" id="shootBtn" onclick="document.getElementById('fileCam').click()">
         ▣ 사진 찍어서 접수
       </button>
       <input type="file" id="fileCam" accept="image/*" capture="environment" class="hide" onchange="onScanFile(this)">
 
-      <button class="b2" id="retryBtn" onclick="restartLive()">카메라 다시 시작</button>
+      <div class="links">
+        <button onclick="restartLive()">카메라 다시 시작</button>
+        <button onclick="document.getElementById('fileCam').click()">사진으로 찍기</button>
+      </div>
 
       <div class="note">
-        QR이 안 찍히면 <b>접수번호(R00002)·이름·연락처</b>로도 접수됩니다.<br>
-        명단에 없으면 노트북 담당 직원에게 안내하세요.
+        명단에 없으면 <b>노트북 담당 직원</b>에게 안내하세요.
       </div>
     </div>
   </div>
@@ -156,17 +163,15 @@ var CFG = { url: '', key: '' };
 function loadCfg(){
   CFG.url = WEBAPP_URL || '';
   CFG.key = STAFF_KEY  || '';
-
-  if (!CFG.url || !CFG.key){                       // 파일에 안 넣었으면 저장값 사용
+  if (!CFG.url || !CFG.key){
     try {
       CFG.url = CFG.url || localStorage.getItem('swc_url') || '';
       CFG.key = CFG.key || localStorage.getItem('swc_key') || '';
     } catch(e){}
   }
-  var q = new URLSearchParams(location.search);    // 주소로도 전달 가능
+  var q = new URLSearchParams(location.search);
   if (q.get('u')) CFG.url = q.get('u');
   if (q.get('k')) CFG.key = q.get('k');
-
   CFG.url = (CFG.url || '').split('?')[0].trim();
   CFG.key = (CFG.key || '').trim();
   return CFG.url && CFG.key;
@@ -186,7 +191,7 @@ function saveSetup(){
   boot();
 }
 
-/* ═════════ 서버 호출 (JSONP — CORS 문제 없음) ═════════ */
+/* ═════════ 서버 호출 (JSONP) ═════════ */
 var jsonpSeq = 0;
 function callApi(params, onDone, onFail){
   var name = '__swc_cb_' + (++jsonpSeq);
@@ -211,27 +216,27 @@ function callApi(params, onDone, onFail){
 }
 
 /* ═════════ 접수 처리 ═════════ */
-var count = 0, busy = false, lastCode = '', lastAt = 0;
+var count = 0, busy = false, lastCode = '', lastAt = 0, holdTimer = null;
 
 function handle(raw){
   var now = Date.now();
-  if (raw === lastCode && now - lastAt < 3500) return;
+  if (raw === lastCode && now - lastAt < HOLD_MS) return;   // 같은 QR 연속 인식 방지
   lastCode = raw; lastAt = now;
   busy = true;
-  beep(880, .07);
-  show('', '⏳', '확인 중...', null, null, '명단을 대조하고 있습니다.');
+  clearHold();
+  beep(880, .06);
+  show('', '⏳', '확인 중...', null, null, null);
 
   callApi({ a:'checkin', t: raw }, function(r){
     render(r);
     busy = false;
-    // 참석 처리가 끝나면 알림톡을 곧바로 따로 요청합니다.
-    // 화면은 기다리지 않으므로 바로 다음 사람을 찍을 수 있습니다.
     if (r && r.ok && r.needTalk){
       var tk = (r.person && r.person.토큰) ? r.person.토큰 : raw;
       callApi({ a:'talk', t: tk }, function(){}, function(){});
     }
   }, function(msg){
-    show('err','⚠','통신 오류', null, null, msg + '\n인터넷 연결을 확인하고 다시 시도하세요.');
+    show('err','⚠','통신 오류', null, null, msg + '\n인터넷을 확인하고 다시 찍어주세요.');
+    startHold();
     busy = false;
   });
 }
@@ -248,30 +253,36 @@ function render(r){
   if (r.ok){
     count++;
     document.getElementById('cnt').textContent = '확인 ' + count + '명';
-    beep(1320,.12); setTimeout(function(){ beep(1760,.14); }, 130);
+    beep(1320,.11); setTimeout(function(){ beep(1760,.14); }, 120);
     vibe([40,60,40]);
-    show('ok','✓','참석이 완료되었습니다', r.person, chips(r.person));
+    show('ok','✓','참석이 완료되었습니다', r.person, chips(r.person), null);
+
   } else if (r.code === 'ALREADY'){
     beep(440,.3); vibe([120,80,120]);
-    show('warn','⚠','이미 참석확인된 QR입니다', r.person, chips(r.person));
+    show('warn','⚠','이미 참석확인된 QR입니다', r.person, chips(r.person),
+         '앞서 접수된 분입니다. 본인이 맞는지 확인해 주세요.');
+
   } else if (r.code === 'NOT_FOUND'){
     beep(220,.45); vibe([200,100,200]);
     show('err','✕','확인 불가', null, null,
-         '사전신청 명단에서 찾을 수 없습니다.\n노트북 담당 직원에게 안내하세요.');
+         '명단에 없습니다.\n노트북 담당 직원에게 안내해 주세요.');
+
   } else if (r.code === 'AUTH'){
-    show('err','⚠','접속키가 맞지 않습니다', null, null, '담당자에게 문의하세요.');
+    show('err','⚠','접속키 오류', null, null, '담당자에게 문의하세요.');
+
   } else {
     beep(220,.3);
-    show('err','✕', r.msg || '확인 불가', null, null, '');
+    show('err','✕', r.msg || '확인 불가', null, null, '노트북 담당 직원에게 안내해 주세요.');
   }
+  startHold();
 }
 
 function chips(p){
   if (!p) return '';
   return '<div class="chips">' +
-    '<span class="chip">좌석 <b>' + (p.좌석배치||'-') + '</b>구역</span>' +
-    '<span class="chip">응모권 <b>' + (p.응모권||'-') + '</b>번</span>' +
-    '<span class="chip">' + (p.소속지회||'') + '지회</span></div>';
+    '<span class="chip">좌석 <b>' + (p.좌석배치||'-') + '</b></span>' +
+    '<span class="chip">응모권 <b>' + (p.응모권||'-') + '</b></span>' +
+    '<span class="chip">' + esc(p.소속지회||'') + '</span></div>';
 }
 
 function esc(s){
@@ -280,21 +291,40 @@ function esc(s){
 
 function show(cls, ic, msg, person, chipHtml, sub){
   var el = document.getElementById('res');
-  el.className = 'result ' + (cls||'');
+  el.className = 'res ' + (cls || 'idle');
   var h = '<div class="ic">' + ic + '</div><div class="msg">' + esc(msg) + '</div>';
   if (person) h += '<div class="nm">' + esc(person.이름) + ' 선생님</div>' +
                    '<div class="sub">' + esc(person.기관명||'') + '</div>';
   if (sub)      h += '<div class="sub" style="margin-top:8px">' + esc(sub) + '</div>';
   if (chipHtml) h += chipHtml;
+  h += '<div class="hold" id="hold"></div>';
   el.innerHTML = h;
 }
 
-/* ═════════ 사진 촬영 판독 (어떤 기기에서도 됩니다) ═════════ */
+/* 결과를 5초 보여준 뒤 대기 화면으로 돌아갑니다 */
+function startHold(){
+  clearHold();
+  var bar = document.getElementById('hold');
+  if (bar){
+    bar.style.setProperty('--hold', (HOLD_MS/1000) + 's');
+    bar.classList.add('run');
+  }
+  holdTimer = setTimeout(idle, HOLD_MS);
+}
+function clearHold(){
+  if (holdTimer){ clearTimeout(holdTimer); holdTimer = null; }
+}
+function idle(){
+  clearHold();
+  show('', '▣', live ? '대기 중 — QR을 갖다 대세요' : '사진으로 접수하세요', null, null, null);
+}
+
+/* ═════════ 사진 촬영 판독 (카메라가 막힌 기기용) ═════════ */
 function onScanFile(input){
   var file = input.files[0];
   if (!file) return;
-  busy = true;
-  show('', '⏳', '사진 분석 중...', null, null, 'QR 코드를 판독하고 있습니다.');
+  busy = true; clearHold();
+  show('', '⏳', '사진 분석 중...', null, null, null);
 
   var reader = new FileReader();
   reader.onload = function(e){
@@ -319,12 +349,12 @@ function onScanFile(input){
       }
       busy = false;
 
-      if (code && code.data) handle(code.data);
+      if (code && code.data){ lastCode = ''; handle(code.data); }
       else {
         beep(220,.3);
         show('err','✕','QR 인식 실패', null, null,
-             'QR이 선명하게 나오도록 조금 더 가까이서 다시 찍어주세요.\n' +
-             '참가자에게 화면 밝기를 최대로 올려달라고 하세요.');
+             '조금 더 가까이서 다시 찍어주세요.\n참가자 화면 밝기를 최대로 올려주세요.');
+        startHold();
       }
     };
     img.src = e.target.result;
@@ -342,7 +372,7 @@ function startLive(){
   ctx = cv.getContext('2d', { willReadFrequently: true });
 
   if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia){
-    return camFail('이 브라우저는 실시간 카메라를 지원하지 않습니다');
+    return camFail('이 브라우저는 카메라를 지원하지 않습니다');
   }
   navigator.mediaDevices.getUserMedia({
     video: { facingMode: { ideal:'environment' }, width:{ideal:1280}, height:{ideal:1280} },
@@ -355,9 +385,8 @@ function startLive(){
     document.getElementById('dot').classList.add('on');
     document.getElementById('camwrap').classList.remove('hide');
     document.getElementById('camerr').classList.add('hide');
-    document.getElementById('shootBtn').classList.remove('primary');
-    document.getElementById('retryBtn').classList.add('hide');
-    show('', '▣', '대기 중', null, null, 'QR을 화면 안에 맞춰주세요');
+    document.getElementById('shootBtn').classList.add('hide');
+    idle();
     loop();
   }).catch(function(e){ camFail(e && e.name ? e.name : String(e)); });
 }
@@ -374,15 +403,14 @@ function camFail(reason){
   live = false;
   document.getElementById('dot').classList.remove('on');
   document.getElementById('camwrap').classList.add('hide');
-  document.getElementById('retryBtn').classList.remove('hide');
-  document.getElementById('shootBtn').classList.add('primary');   // 사진 방식을 크게
+  document.getElementById('shootBtn').classList.remove('hide');
 
   var el = document.getElementById('camerr');
   el.classList.remove('hide');
-  el.innerHTML = '⚠ 실시간 카메라를 열 수 없습니다 (' + esc(reason) + ')<br>' +
+  el.innerHTML = '⚠ 카메라를 열 수 없습니다 (' + esc(reason) + ')<br>' +
     '카카오톡 안에서 열면 막힙니다. <b>사파리·크롬</b>으로 열어주세요.<br><br>' +
-    '<b>아래 [사진 찍어서 접수] 로는 그대로 접수할 수 있습니다.</b>';
-  show('', '▣', '사진으로 접수하세요', null, null, '아래 파란 버튼을 누르면 카메라가 열립니다');
+    '<b>아래 [사진 찍어서 접수] 로는 그대로 접수됩니다.</b>';
+  idle();
 }
 
 function loop(){
@@ -409,7 +437,7 @@ function beep(freq, dur){
     var o = actx.createOscillator(), g = actx.createGain();
     o.type='sine'; o.frequency.value=freq;
     g.gain.setValueAtTime(.001, actx.currentTime);
-    g.gain.exponentialRampToValueAtTime(.28, actx.currentTime+.01);
+    g.gain.exponentialRampToValueAtTime(.3, actx.currentTime+.01);
     g.gain.exponentialRampToValueAtTime(.001, actx.currentTime+dur);
     o.connect(g); g.connect(actx.destination);
     o.start(); o.stop(actx.currentTime + dur + .02);
@@ -422,6 +450,11 @@ document.addEventListener('click', function once(){
   document.removeEventListener('click', once);
 });
 
+/* 화면이 꺼졌다 돌아오면 카메라를 되살립니다 */
+document.addEventListener('visibilitychange', function(){
+  if (!document.hidden && !live && CFG.url) restartLive();
+});
+
 /* ═════════ 시작 ═════════ */
 function boot(){
   var m = document.getElementById('main');
@@ -429,14 +462,11 @@ function boot(){
   m.style.display = 'flex';
   document.getElementById('manual')
     .addEventListener('keydown', function(e){ if (e.key === 'Enter') manualCheck(); });
-  startLive();                       // 열자마자 카메라 켜기
+  startLive();
 }
 
-if (loadCfg()) {
-  boot();
-} else {
-  document.getElementById('setup').classList.remove('hide');
-}
+if (loadCfg()) boot();
+else document.getElementById('setup').classList.remove('hide');
 </script>
 </body>
 </html>
