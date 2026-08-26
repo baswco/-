@@ -6,8 +6,10 @@
   <title>2026 사대회 현장 접수 스캐너</title>
   <style>
     :root {
-      --navy: #0f2f5c; --navy2: #1a4b8c; --accent: #1f7ae0;
-      --ok: #0f9d58; --warn: #f29900; --err: #d93025;
+      --navy: #0f2f5c; --accent: #1f7ae0;
+      --ok: #0f9d58; --ok-bg: #0d281e; --ok-border: #2bb471;
+      --warn: #f29900; --warn-bg: #291e0a;
+      --err: #d93025; --err-bg: #291012;
       --bg: #0d1420; --card: #151d2b; --line: #2b3646; --sub: #8b97a8;
     }
     * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
@@ -31,14 +33,14 @@
     .dot { width: 10px; height: 10px; border-radius: 50%; background: #4b5666; }
     .dot.on { background: #3ddc84; box-shadow: 0 0 0 4px rgba(61, 220, 132, 0.25); }
     .top .t { font-weight: 800; font-size: 16px; }
-    .top .c { margin-left: auto; font-size: 14px; font-weight: 700; color: #3ddc84; }
+    .top .c { margin-left: auto; font-size: 14px; font-weight: 800; color: #3ddc84; }
 
-    .main-body { padding: 14px; display: flex; flex-direction: column; gap: 12px; }
+    .main-body { padding: 12px; display: flex; flex-direction: column; gap: 12px; }
 
     /* 카메라 뷰파인더 */
     .camwrap {
       position: relative; background: #000; border-radius: 14px;
-      aspect-ratio: 4 / 3; max-height: 280px; overflow: hidden; border: 1px solid var(--line);
+      aspect-ratio: 4 / 3; max-height: 250px; overflow: hidden; border: 1.5px solid var(--line);
     }
     video { width: 100%; height: 100%; object-fit: cover; display: block; }
     canvas { display: none; }
@@ -46,38 +48,70 @@
       position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; pointer-events: none;
     }
     .frame i {
-      width: 60%; aspect-ratio: 1/1; border: 2.5px solid rgba(255, 255, 255, 0.85); border-radius: 16px;
-      box-shadow: 0 0 0 2000px rgba(0, 0, 0, 0.35);
+      width: 58%; aspect-ratio: 1/1; border: 3px solid rgba(255, 255, 255, 0.9); border-radius: 16px;
+      box-shadow: 0 0 0 2000px rgba(0, 0, 0, 0.4);
     }
     .camhint {
-      position: absolute; left: 0; right: 0; bottom: 10px; text-align: center;
-      font-size: 12.5px; font-weight: 700; color: #fff; text-shadow: 0 1px 3px #000;
+      position: absolute; left: 0; right: 0; bottom: 8px; text-align: center;
+      font-size: 12px; font-weight: 700; color: #fff; text-shadow: 0 1px 3px #000;
     }
 
-    /* 접수 결과 표시창 */
+    /* 🌟 결과 표시 카드 (완료 화면 대폭 강화) */
     .result {
-      padding: 16px; text-align: center; min-height: 150px; display: flex;
+      padding: 20px 16px; text-align: center; min-height: 180px; display: flex;
       flex-direction: column; justify-content: center; background: var(--card);
-      border: 1.5px solid var(--line); border-radius: 14px;
+      border: 2px solid var(--line); border-radius: 16px;
+      transition: all 0.25s ease-out;
     }
-    .result .ic { font-size: 38px; line-height: 1; margin-bottom: 4px; }
-    .result .msg { font-size: 21px; font-weight: 800; }
-    .result .nm { font-size: 19px; font-weight: 800; margin-top: 6px; color: #fff; }
-    .result .sub { font-size: 13.5px; color: var(--sub); margin-top: 2px; }
+    .result.pop { animation: pop 0.35s ease-out; }
+    @keyframes pop {
+      0% { transform: scale(0.96); }
+      50% { transform: scale(1.02); }
+      100% { transform: scale(1); }
+    }
+
+    .result .ic { font-size: 44px; line-height: 1; margin-bottom: 6px; }
+    .result .msg { font-size: 24px; font-weight: 900; letter-spacing: -0.5px; }
+    .result .nm { font-size: 23px; font-weight: 900; margin-top: 8px; color: #fff; }
+    .result .sub { font-size: 14.5px; color: var(--sub); margin-top: 3px; }
+
+    /* 성공(완료) 스타일 */
+    .result.ok {
+      border-color: var(--ok-border); background: var(--ok-bg);
+      box-shadow: 0 0 20px rgba(15, 157, 88, 0.35);
+    }
+    .result.ok .msg { color: #3ddc84; }
     
-    .result.ok   { border-color: #0f9d58; background: #0e241b; }
-    .result.ok   .msg { color: #3ddc84; }
-    .result.warn { border-color: #f29900; background: #261e0f; }
+    /* 중복/경고 스타일 */
+    .result.warn { border-color: var(--warn); background: var(--warn-bg); }
     .result.warn .msg { color: #ffc94d; }
-    .result.err  { border-color: #d93025; background: #261214; }
-    .result.err  .msg { color: #ff6b5e; }
+    
+    /* 실패 스타일 */
+    .result.err { border-color: var(--err); background: var(--err-bg); }
+    .result.err .msg { color: #ff6b5e; }
 
-    .chips { display: flex; gap: 8px; justify-content: center; margin-top: 10px; flex-wrap: wrap; }
-    .chip { background: #1a2434; border: 1px solid var(--line); border-radius: 999px; padding: 6px 14px; font-size: 13px; }
-    .chip.seat b { color: #4da3ff; font-size: 15px; }
-    .chip.ticket b { color: #3ddc84; font-size: 15px; }
+    /* 좌석 / 응모권 대형 뱃지 */
+    .chips {
+      display: grid; grid-template-columns: 1fr 1fr; gap: 10px;
+      margin-top: 14px; padding-top: 12px; border-top: 1px dashed rgba(255,255,255,0.15);
+    }
+    .badge-box {
+      background: rgba(255,255,255,0.06); border-radius: 12px; padding: 10px 8px; text-align: center;
+      border: 1px solid rgba(255,255,255,0.1);
+    }
+    .badge-box.seat { border-color: rgba(77, 163, 255, 0.4); background: rgba(31, 122, 224, 0.15); }
+    .badge-box.ticket { border-color: rgba(61, 220, 132, 0.4); background: rgba(15, 157, 88, 0.15); }
+    
+    .badge-label { font-size: 12px; color: #9aa7b8; font-weight: 600; }
+    .badge-value { font-size: 24px; font-weight: 900; margin-top: 2px; line-height: 1.15; }
+    .badge-box.seat .badge-value { color: #5eb2ff; }
+    .badge-box.ticket .badge-value { color: #43e68c; }
 
-    /* 수동 입력 및 버튼 영역 */
+    .time-stamp {
+      font-size: 12px; color: #8b97a8; margin-top: 8px;
+    }
+
+    /* 수동 입력 및 하단 조작부 */
     .control-box { background: var(--card); border: 1px solid var(--line); border-radius: 14px; padding: 14px; }
     .row { display: flex; gap: 8px; }
     input[type=text] {
@@ -110,11 +144,11 @@
 <body>
 
   <div class="wrap">
-    <!-- 상단 상태 바 -->
+    <!-- 상단 헤더 -->
     <div class="top">
       <span class="dot" id="dot"></span>
       <span class="t">2026 사대회 현장 접수</span>
-      <span class="c" id="cnt">확인 0명</span>
+      <span class="c" id="cnt">접수 0명</span>
     </div>
 
     <div class="main-body">
@@ -123,25 +157,23 @@
         <video id="v" autoplay playsinline muted webkit-playsinline></video>
         <canvas id="cv"></canvas>
         <div class="frame"><i></i></div>
-        <div class="camhint">참가자의 QR 코드를 비춰주세요 (자동 인식)</div>
+        <div class="camhint">QR 코드를 비추면 즉시 자동 처리됩니다</div>
       </div>
 
-      <!-- 접수 결과 안내창 -->
+      <!-- 🌟 대형 결과 안내 카드 -->
       <div class="result" id="res">
         <div class="ic">📷</div>
         <div class="msg" style="font-size:18px;color:#9aa7b8">스캔 대기 중</div>
-        <div class="sub">QR을 비추거나 아래에 접수번호를 입력하세요.</div>
+        <div class="sub">참가자 QR을 비추거나 아래에 번호를 입력하세요.</div>
       </div>
 
       <!-- 수동 번호 입력 및 버튼 영역 -->
       <div class="control-box">
-        <!-- 1. 수동 입력칸 (접수번호, 이름, 연락처 모두 가능) -->
         <div class="row">
           <input type="text" id="manual" placeholder="접수번호(예: R00002) 또는 이름 입력" autocomplete="off">
           <button class="btn-submit" onclick="manualCheck()">확인</button>
         </div>
 
-        <!-- 2. 직접 촬영 버튼 (실시간 화면이 안 켜질 때 즉시 사용) -->
         <input type="file" id="fileCam" accept="image/*" capture="environment" class="hide" onchange="onScanFile(this)">
         <button class="btn-camera" onclick="document.getElementById('fileCam').click()">
           📸 카메라로 QR 바로 찍기
@@ -172,13 +204,11 @@
     function startCamera(){
       if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) return;
       
-      // 1차 시도: 모바일 후면 카메라
       navigator.mediaDevices.getUserMedia({
         video: { facingMode: { ideal: 'environment' } },
         audio: false
       }).then(handleStreamSuccess)
       .catch(function(){
-        // 2차 시도: PC 웹캠 또는 일반 카메라
         navigator.mediaDevices.getUserMedia({ video: true, audio: false })
           .then(handleStreamSuccess)
           .catch(function(err){
@@ -251,7 +281,7 @@
           if (code && code.data) {
             handleScan(code.data);
           } else {
-            beep(220, 0.3);
+            soundErr();
             show('err', '❌', 'QR 인식 실패', null, null, 'QR 코드가 선명하게 나오도록 다시 촬영해 주세요.');
           }
         };
@@ -267,7 +297,7 @@
       if (raw === lastCode && now - lastAt < 3500) return;
       lastCode = raw; lastAt = now;
       busy = true;
-      beep(880, 0.07);
+      playBeep(880, 0.06);
       show('', '⏳', '출석 처리 중...', null, null, '명단 대조 및 시트 기록 중');
 
       fetch(WEB_APP_URL, {
@@ -298,33 +328,49 @@
       if (e.key === 'Enter') manualCheck();
     });
 
-    /* ── 6. 결과 화면 렌더링 ── */
+    /* ── 6. 🌟 출석 완료 화면 렌더링 ── */
     function render(r){
+      var el = document.getElementById('res');
+      el.classList.remove('pop');
+      void el.offsetWidth; // CSS 애니메이션 리셋
+
       if (r.ok){
         count++;
-        document.getElementById('cnt').textContent = '확인 ' + count + '명';
-        beep(1320, 0.12); setTimeout(function(){ beep(1760, 0.14); }, 130);
-        vibe([40, 60, 40]);
-        show('ok', '✅', '참석이 확인되었습니다', r.person, chips(r.person), '');
-      } else if (r.code === 'ALREADY'){
-        beep(440, 0.3); vibe([120, 80, 120]);
-        show('warn', '⚠', '이미 출석 완료된 대상자입니다', r.person, chips(r.person), '출석일시: ' + (r.person ? r.person.참석일시 : ''));
-      } else if (r.code === 'NOT_FOUND'){
-        beep(220, 0.45); vibe([200, 100, 200]);
-        show('err', '❌', '사전신청 명단 없음', null, null, '사전신청 명단에서 확인되지 않습니다.\n현장 접수대(안내데스크) 직원에게 문의해 주세요.');
-      } else {
-        beep(220, 0.3);
-        show('err', '❌', r.msg || '확인 불가', null, null, '');
-      }
-    }
+        document.getElementById('cnt').textContent = '접수 ' + count + '명';
+        soundSuccess(); // 🎵 딩-동-댕 3단 차임벨
+        vibe([50, 60, 50]);
+        
+        var p = r.person || {};
+        var badges = 
+          '<div class="chips">' +
+            '<div class="badge-box seat"><div class="badge-label">좌석 구역</div><div class="badge-value">' + (p.좌석배치 || '-') + '구역</div></div>' +
+            '<div class="badge-box ticket"><div class="badge-label">응모권 번호</div><div class="badge-value">' + (p.응모권 || '-') + '번</div></div>' +
+          '</div>' +
+          '<div class="time-stamp">⏱ 접수완료: ' + (p.참석일시 || '') + '</div>';
 
-    function chips(p){
-      if (!p) return '';
-      return '<div class="chips">' +
-        '<span class="chip seat">좌석 <b>' + (p.좌석배치 || '-') + '</b>구역</span>' +
-        '<span class="chip ticket">응모권 <b>' + (p.응모권 || '-') + '</b>번</span>' +
-        '<span class="chip">' + (p.소속지회 || '') + '지회</span>' +
-        '</div>';
+        show('ok pop', '✅', '🎉 정상 접수 완료', p, badges, '');
+
+      } else if (r.code === 'ALREADY'){
+        soundWarn();
+        vibe([120, 80, 120]);
+        var p = r.person || {};
+        var badges = 
+          '<div class="chips">' +
+            '<div class="badge-box seat"><div class="badge-label">좌석 구역</div><div class="badge-value">' + (p.좌석배치 || '-') + '구역</div></div>' +
+            '<div class="badge-box ticket"><div class="badge-label">응모권 번호</div><div class="badge-value">' + (p.응모권 || '-') + '번</div></div>' +
+          '</div>' +
+          '<div class="time-stamp" style="color:#ffc94d">⚠ 기존 접수시간: ' + (p.참석일시 || '') + '</div>';
+
+        show('warn pop', '⚠', '이미 출석 완료된 QR', p, badges, '');
+
+      } else if (r.code === 'NOT_FOUND'){
+        soundErr();
+        vibe([200, 100, 200]);
+        show('err pop', '❌', '사전신청 명단 없음', null, null, '사전신청 명단에서 확인되지 않습니다.\n현장 접수대(안내데스크) 직원에게 문의해 주세요.');
+      } else {
+        soundErr();
+        show('err pop', '❌', r.msg || '확인 불가', null, null, '');
+      }
     }
 
     function show(cls, ic, msg, person, chipHtml, sub){
@@ -335,29 +381,52 @@
         h += '<div class="nm">' + person.이름 + ' 선생님</div>' +
              '<div class="sub">' + (person.소속지회 || '') + '지회 · ' + (person.기관명 || '') + '</div>';
       }
-      if (sub) h += '<div class="sub" style="white-space:pre-line;margin-top:6px">' + sub + '</div>';
       if (chipHtml) h += chipHtml;
+      if (sub) h += '<div class="sub" style="white-space:pre-line;margin-top:8px">' + sub + '</div>';
       el.innerHTML = h;
     }
 
+    /* ── 7. 🎵 사운드 효과 (완료/경고/오류) ── */
     var actx = null;
-    function beep(freq, dur){
+    function getAudio(){
+      if (!actx) actx = new (window.AudioContext || window.webkitAudioContext)();
+      if (actx.state === 'suspended') actx.resume();
+      return actx;
+    }
+
+    function playBeep(freq, dur){
       try {
-        if (!actx) actx = new (window.AudioContext || window.webkitAudioContext)();
-        if (actx.state === 'suspended') actx.resume();
-        var o = actx.createOscillator(), g = actx.createGain();
+        var ctx = getAudio();
+        var o = ctx.createOscillator(), g = ctx.createGain();
         o.type = 'sine'; o.frequency.value = freq;
-        g.gain.setValueAtTime(0.001, actx.currentTime);
-        g.gain.exponentialRampToValueAtTime(0.28, actx.currentTime + 0.01);
-        g.gain.exponentialRampToValueAtTime(0.001, actx.currentTime + dur);
-        o.connect(g); g.connect(actx.destination);
-        o.start(); o.stop(actx.currentTime + dur + 0.02);
+        g.gain.setValueAtTime(0.001, ctx.currentTime);
+        g.gain.exponentialRampToValueAtTime(0.28, ctx.currentTime + 0.01);
+        g.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + dur);
+        o.connect(g); g.connect(ctx.destination);
+        o.start(); o.stop(ctx.currentTime + dur + 0.02);
       } catch(e){}
     }
+
+    // 성공 시: 딩-동-댕 🎵 (3단 상승 화음)
+    function soundSuccess(){
+      playBeep(880, 0.1);
+      setTimeout(function(){ playBeep(1320, 0.12); }, 110);
+      setTimeout(function(){ playBeep(1760, 0.16); }, 230);
+    }
+    // 중복 시: 뚜-둥
+    function soundWarn(){
+      playBeep(554, 0.15);
+      setTimeout(function(){ playBeep(440, 0.25); }, 160);
+    }
+    // 오류 시: 삑-
+    function soundErr(){
+      playBeep(220, 0.35);
+    }
+
     function vibe(pattern){ try { if (navigator.vibrate) navigator.vibrate(pattern); } catch(e){} }
 
     document.addEventListener('click', function once(){
-      try { if (!actx) actx = new (window.AudioContext || window.webkitAudioContext)(); actx.resume(); } catch(e){}
+      getAudio();
       document.removeEventListener('click', once);
     });
 
