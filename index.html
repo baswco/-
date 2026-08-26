@@ -302,10 +302,12 @@ function render(r){
 
 function chips(p){
   if (!p) return '';
-  return '<div class="chips">' +
-    '<span class="chip">좌석 <b>' + (p.좌석배치||'-') + '</b></span>' +
-    '<span class="chip">응모권 <b>' + (p.응모권||'-') + '</b></span>' +
-    '<span class="chip">' + esc(p.소속지회||'') + '</span></div>';
+  var seat = p.좌석배치
+    ? '<span class="chip">좌석 <b>' + esc(p.좌석배치) + '</b></span>'
+    : '';
+  return '<div class="chips">' + seat +
+    '<span class="chip">응모권 <b>' + esc(p.응모권 || '-') + '</b></span>' +
+    '<span class="chip">' + esc(p.소속지회 || '') + '</span></div>';
 }
 
 function esc(s){
