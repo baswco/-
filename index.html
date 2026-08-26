@@ -3,185 +3,365 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
-  <title>2026 사대회 현장 접수 자동 스캐너</title>
+  <title>2026 사대회 현장 접수 스캐너</title>
   <style>
     :root {
-      --navy: #0f2f5c;
-      --navy2: #1a4b8c;
-      --accent: #1f7ae0;
-      --ok: #0f9d58;
-      --warn: #f29900;
-      --err: #d93025;
-      --bg: #0d1420;
-      --card: #151d2b;
-      --line: #2b3646;
-      --sub: #8b97a8;
+      --navy: #0f2f5c; --navy2: #1a4b8c; --accent: #1f7ae0;
+      --ok: #0f9d58; --warn: #f29900; --err: #d93025;
+      --bg: #0d1420; --card: #151d2b; --line: #2b3646; --sub: #8b97a8;
     }
     * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
-    html, body { margin: 0; padding: 0; height: 100%; }
+    html, body { margin: 0; padding: 0; min-height: 100%; }
     body {
-      background: var(--bg);
-      color: #fff;
-      font-family: 'Pretendard', -apple-system, BlinkMacSystemFont, 'Apple SD Gothic Neo', 'Malgun Gothic', sans-serif;
-      display: flex;
-      flex-direction: column;
-      overflow: hidden;
+      background: var(--bg); color: #fff;
+      font-family: 'Pretendard', -apple-system, BlinkMacSystemFont, sans-serif;
+      font-size: 15px; line-height: 1.5;
       -webkit-text-size-adjust: 100%;
     }
+    .wrap {
+      max-width: 480px; margin: 0 auto; min-height: 100vh;
+      display: flex; flex-direction: column; padding-bottom: 30px;
+    }
 
-    /* 상단 상태 바 */
+    /* 상단 헤더 */
     .top {
-      padding: 14px 18px;
-      display: flex;
-      align-items: center;
-      gap: 10px;
-      border-bottom: 1px solid var(--line);
-      background: #0b111b;
-      z-index: 10;
+      padding: 14px 18px; display: flex; align-items: center; gap: 10px;
+      border-bottom: 1px solid var(--line); background: #0b111b; position: sticky; top: 0; z-index: 100;
     }
-    .dot {
-      width: 10px;
-      height: 10px;
-      border-radius: 50%;
-      background: #4b5666;
-      flex: none;
-    }
-    .dot.on {
-      background: #3ddc84;
-      box-shadow: 0 0 0 4px rgba(61, 220, 132, 0.25);
-    }
-    .top .t { font-weight: 800; font-size: 16px; letter-spacing: -0.3px; }
+    .dot { width: 10px; height: 10px; border-radius: 50%; background: #4b5666; }
+    .dot.on { background: #3ddc84; box-shadow: 0 0 0 4px rgba(61, 220, 132, 0.25); }
+    .top .t { font-weight: 800; font-size: 16px; }
     .top .c { margin-left: auto; font-size: 14px; font-weight: 700; color: #3ddc84; }
 
-    /* 실시간 카메라 뷰파인더 */
+    .main-body { padding: 14px; display: flex; flex-direction: column; gap: 12px; }
+
+    /* 카메라 뷰파인더 */
     .camwrap {
-      position: relative;
-      background: #000;
-      flex: 1;
-      min-height: 240px;
-      overflow: hidden;
+      position: relative; background: #000; border-radius: 14px;
+      aspect-ratio: 4 / 3; max-height: 280px; overflow: hidden; border: 1px solid var(--line);
     }
     video { width: 100%; height: 100%; object-fit: cover; display: block; }
     canvas { display: none; }
     .frame {
-      position: absolute;
-      inset: 0;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      pointer-events: none;
+      position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; pointer-events: none;
     }
     .frame i {
-      width: 68%;
-      aspect-ratio: 1 / 1;
-      border: 3px solid rgba(255, 255, 255, 0.85);
-      border-radius: 20px;
-      box-shadow: 0 0 0 2000px rgba(0, 0, 0, 0.45);
+      width: 60%; aspect-ratio: 1/1; border: 2.5px solid rgba(255, 255, 255, 0.85); border-radius: 16px;
+      box-shadow: 0 0 0 2000px rgba(0, 0, 0, 0.35);
     }
     .camhint {
-      position: absolute;
-      left: 0; right: 0; bottom: 14px;
-      text-align: center;
-      font-size: 13.5px;
-      font-weight: 700;
-      color: #fff;
-      text-shadow: 0 1px 4px #000;
+      position: absolute; left: 0; right: 0; bottom: 10px; text-align: center;
+      font-size: 12.5px; font-weight: 700; color: #fff; text-shadow: 0 1px 3px #000;
     }
 
     /* 접수 결과 표시창 */
     .result {
-      padding: 18px 16px;
-      text-align: center;
-      min-height: 175px;
-      display: flex;
-      flex-direction: column;
-      justify-content: center;
-      background: var(--card);
-      border-top: 1px solid var(--line);
+      padding: 16px; text-align: center; min-height: 150px; display: flex;
+      flex-direction: column; justify-content: center; background: var(--card);
+      border: 1.5px solid var(--line); border-radius: 14px;
     }
-    .result .ic { font-size: 42px; line-height: 1; margin-bottom: 4px; }
-    .result .msg { font-size: 22px; font-weight: 800; }
+    .result .ic { font-size: 38px; line-height: 1; margin-bottom: 4px; }
+    .result .msg { font-size: 21px; font-weight: 800; }
     .result .nm { font-size: 19px; font-weight: 800; margin-top: 6px; color: #fff; }
-    .result .sub { font-size: 14px; color: var(--sub); margin-top: 2px; }
+    .result .sub { font-size: 13.5px; color: var(--sub); margin-top: 2px; }
     
+    .result.ok   { border-color: #0f9d58; background: #0e241b; }
     .result.ok   .msg { color: #3ddc84; }
+    .result.warn { border-color: #f29900; background: #261e0f; }
     .result.warn .msg { color: #ffc94d; }
+    .result.err  { border-color: #d93025; background: #261214; }
     .result.err  .msg { color: #ff6b5e; }
 
-    .chips {
-      display: flex;
-      gap: 8px;
-      justify-content: center;
-      margin-top: 10px;
-      flex-wrap: wrap;
-    }
-    .chip {
-      background: #1a2434;
-      border: 1px solid var(--line);
-      border-radius: 999px;
-      padding: 6px 14px;
-      font-size: 13.5px;
-      color: #c9d4e2;
-    }
-    .chip.seat b { color: #4da3ff; font-size: 16px; }
-    .chip.ticket b { color: #3ddc84; font-size: 16px; }
+    .chips { display: flex; gap: 8px; justify-content: center; margin-top: 10px; flex-wrap: wrap; }
+    .chip { background: #1a2434; border: 1px solid var(--line); border-radius: 999px; padding: 6px 14px; font-size: 13px; }
+    .chip.seat b { color: #4da3ff; font-size: 15px; }
+    .chip.ticket b { color: #3ddc84; font-size: 15px; }
 
-    /* 하단 조작 바 */
-    .bar {
-      padding: 12px 16px 24px;
-      background: #0b111b;
-      border-top: 1px solid var(--line);
-    }
+    /* 수동 입력 및 버튼 영역 */
+    .control-box { background: var(--card); border: 1px solid var(--line); border-radius: 14px; padding: 14px; }
     .row { display: flex; gap: 8px; }
     input[type=text] {
-      flex: 1;
-      padding: 12px 14px;
-      border-radius: 10px;
-      border: 1px solid var(--line);
-      background: #151d2b;
-      color: #fff;
-      font-size: 15px;
-      font-family: inherit;
-      outline: none;
+      flex: 1; padding: 13px 14px; border-radius: 10px; border: 1px solid var(--line);
+      background: #0b111b; color: #fff; font-size: 15px; outline: none; font-family: inherit;
     }
     input[type=text]:focus { border-color: var(--accent); }
-    input[type=text]::placeholder { color: #5d6a7d; }
-
+    
     button {
-      border: 0;
-      border-radius: 10px;
-      font-family: inherit;
-      font-weight: 700;
-      cursor: pointer;
-      font-size: 15px;
+      border: 0; border-radius: 10px; font-weight: 700; cursor: pointer; font-family: inherit;
     }
-    .btn-submit {
-      background: var(--accent);
-      color: #fff;
-      padding: 12px 18px;
+    .btn-submit { background: var(--accent); color: #fff; padding: 13px 18px; font-size: 15px; }
+    
+    .btn-camera {
+      display: flex; align-items: center; justify-content: center; gap: 8px;
+      width: 100%; padding: 14px; margin-top: 10px; background: var(--ok); color: #fff;
+      border-radius: 10px; font-size: 16px; font-weight: 800;
+    }
+    .btn-camera:active { background: #0b8043; }
+
+    .btn-restart {
+      background: #1a2434; color: var(--sub); border: 1px solid var(--line);
+      padding: 10px; width: 100%; margin-top: 10px; font-size: 13px;
     }
 
+    .note { font-size: 12px; color: #7c899b; margin-top: 10px; line-height: 1.5; text-align: center; }
     .hide { display: none !important; }
   </style>
 </head>
 <body>
 
-  <!-- 상단 상태 바 -->
-  <div class="top">
-    <span class="dot" id="dot"></span>
-    <span class="t">2026 사대회 자동 스캐너</span>
-    <span class="c" id="cnt">확인 0명</span>
+  <div class="wrap">
+    <!-- 상단 상태 바 -->
+    <div class="top">
+      <span class="dot" id="dot"></span>
+      <span class="t">2026 사대회 현장 접수</span>
+      <span class="c" id="cnt">확인 0명</span>
+    </div>
+
+    <div class="main-body">
+      <!-- 실시간 카메라 뷰파인더 -->
+      <div class="camwrap" id="camwrap">
+        <video id="v" autoplay playsinline muted webkit-playsinline></video>
+        <canvas id="cv"></canvas>
+        <div class="frame"><i></i></div>
+        <div class="camhint">참가자의 QR 코드를 비춰주세요 (자동 인식)</div>
+      </div>
+
+      <!-- 접수 결과 안내창 -->
+      <div class="result" id="res">
+        <div class="ic">📷</div>
+        <div class="msg" style="font-size:18px;color:#9aa7b8">스캔 대기 중</div>
+        <div class="sub">QR을 비추거나 아래에 접수번호를 입력하세요.</div>
+      </div>
+
+      <!-- 수동 번호 입력 및 버튼 영역 -->
+      <div class="control-box">
+        <!-- 1. 수동 입력칸 (접수번호, 이름, 연락처 모두 가능) -->
+        <div class="row">
+          <input type="text" id="manual" placeholder="접수번호(예: R00002) 또는 이름 입력" autocomplete="off">
+          <button class="btn-submit" onclick="manualCheck()">확인</button>
+        </div>
+
+        <!-- 2. 직접 촬영 버튼 (실시간 화면이 안 켜질 때 즉시 사용) -->
+        <input type="file" id="fileCam" accept="image/*" capture="environment" class="hide" onchange="onScanFile(this)">
+        <button class="btn-camera" onclick="document.getElementById('fileCam').click()">
+          📸 카메라로 QR 바로 찍기
+        </button>
+
+        <button class="btn-restart" onclick="restartCamera()">🔄 실시간 카메라 다시 켜기</button>
+
+        <div class="note">
+          · 접수번호(<b>R00002</b>), <b>이름</b>, <b>연락처</b>로도 검색 및 출석이 가능합니다.<br>
+          · 실시간 인식이 안 될 땐 <b>[카메라로 QR 바로 찍기]</b>를 누르세요.
+        </div>
+      </div>
+    </div>
   </div>
 
-  <!-- 실시간 카메라 뷰파인더 -->
-  <div class="camwrap">
-    <video id="v" autoplay playsinline muted webkit-playsinline></video>
-    <canvas id="cv"></canvas>
-    <div class="frame"><i></i></div>
-    <div class="camhint">참가자의 QR 코드를 비춰주세요 (자동 인식)</div>
-  </div>
+  <!-- QR 디코딩 라이브러리 -->
+  <script src="https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.js"></script>
+  <script>
+    var WEB_APP_URL = 'https://script.google.com/macros/s/AKfycbztTWFK3i3F3sjXkeZujNA53ZSnZet_QKWyGIi9cwhVcrFrgPW1gu4FsklnXtqceQdl/exec';
+    var STAFF_KEY   = 'swc2026';
 
-  <!-- 접수 결과 카드 -->
-  <div class="result" id="res">
-    <div class="ic">📷</div>
-    <div class="msg
+    var count = 0, busy = false, stream = null, raf = null, lastCode = '', lastAt = 0;
+    var v  = document.getElementById('v');
+    var cv = document.getElementById('cv');
+    var ctx= cv.getContext('2d', { willReadFrequently: true });
+
+    /* ── 1. 카메라 시작 (PC 웹캠 + 스마트폰 후면 카메라 모두 호환) ── */
+    function startCamera(){
+      if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) return;
+      
+      // 1차 시도: 모바일 후면 카메라
+      navigator.mediaDevices.getUserMedia({
+        video: { facingMode: { ideal: 'environment' } },
+        audio: false
+      }).then(handleStreamSuccess)
+      .catch(function(){
+        // 2차 시도: PC 웹캠 또는 일반 카메라
+        navigator.mediaDevices.getUserMedia({ video: true, audio: false })
+          .then(handleStreamSuccess)
+          .catch(function(err){
+            console.log('카메라 열기 실패:', err);
+            document.getElementById('dot').classList.remove('on');
+          });
+      });
+    }
+
+    function handleStreamSuccess(s){
+      stream = s;
+      v.srcObject = s;
+      v.setAttribute('playsinline', '');
+      v.play().then(function(){
+        document.getElementById('dot').classList.add('on');
+        loop();
+      }).catch(function(){});
+    }
+
+    function restartCamera(){
+      if (raf) cancelAnimationFrame(raf);
+      if (stream) stream.getTracks().forEach(function(t){ t.stop(); });
+      document.getElementById('dot').classList.remove('on');
+      setTimeout(startCamera, 300);
+    }
+
+    /* ── 2. 실시간 비디오 프레임 스캔 루프 ── */
+    function loop(){
+      raf = requestAnimationFrame(loop);
+      if (busy || v.readyState !== v.HAVE_ENOUGH_DATA) return;
+      var w = v.videoWidth, h = v.videoHeight;
+      if (!w || !h) return;
+      var size = Math.min(w, h);
+      cv.width = 500; cv.height = 500;
+      ctx.drawImage(v, (w - size)/2, (h - size)/2, size, size, 0, 0, 500, 500);
+      var img = ctx.getImageData(0, 0, 500, 500);
+      var code = jsQR(img.data, img.width, img.height, { inversionAttempts: 'dontInvert' });
+      if (code && code.data) handleScan(code.data);
+    }
+
+    /* ── 3. 사진 파일로 QR 디코딩 ── */
+    function onScanFile(input) {
+      var file = input.files[0];
+      if (!file) return;
+      busy = true;
+      show('', '⏳', '사진 분석 중...', null, null, 'QR 코드를 판독하고 있습니다.');
+
+      var reader = new FileReader();
+      reader.onload = function(e) {
+        var img = new Image();
+        img.onload = function() {
+          var canvas = document.createElement('canvas');
+          var c = canvas.getContext('2d');
+          var maxDim = 1200;
+          var w = img.width, h = img.height;
+          if (w > maxDim || h > maxDim) {
+            if (w > h) { h = Math.round(h * maxDim / w); w = maxDim; }
+            else { w = Math.round(w * maxDim / h); h = maxDim; }
+          }
+          canvas.width = w; canvas.height = h;
+          c.drawImage(img, 0, 0, w, h);
+
+          var imgData = c.getImageData(0, 0, w, h);
+          var code = jsQR(imgData.data, imgData.width, imgData.height, { inversionAttempts: 'dontInvert' });
+          if (!code || !code.data) {
+            code = jsQR(imgData.data, imgData.width, imgData.height, { inversionAttempts: 'attemptBoth' });
+          }
+
+          busy = false;
+          if (code && code.data) {
+            handleScan(code.data);
+          } else {
+            beep(220, 0.3);
+            show('err', '❌', 'QR 인식 실패', null, null, 'QR 코드가 선명하게 나오도록 다시 촬영해 주세요.');
+          }
+        };
+        img.src = e.target.result;
+      };
+      reader.readAsDataURL(file);
+      input.value = '';
+    }
+
+    /* ── 4. 출석 체크 API 전송 ── */
+    function handleScan(raw){
+      var now = Date.now();
+      if (raw === lastCode && now - lastAt < 3500) return;
+      lastCode = raw; lastAt = now;
+      busy = true;
+      beep(880, 0.07);
+      show('', '⏳', '출석 처리 중...', null, null, '명단 대조 및 시트 기록 중');
+
+      fetch(WEB_APP_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+        body: JSON.stringify({ a: 'checkin', t: raw, k: STAFF_KEY })
+      })
+      .then(function(res){ return res.json(); })
+      .then(function(r){
+        render(r);
+        busy = false;
+      })
+      .catch(function(err){
+        show('err', '⚠', '통신 오류', null, null, '인터넷 연결을 확인하고 다시 시도해 주세요.');
+        busy = false;
+      });
+    }
+
+    /* ── 5. 수동 입력 ── */
+    function manualCheck(){
+      var el = document.getElementById('manual');
+      var t = el.value.trim();
+      if (!t) return;
+      el.value = ''; lastCode = '';
+      handleScan(t);
+    }
+    document.getElementById('manual').addEventListener('keydown', function(e){
+      if (e.key === 'Enter') manualCheck();
+    });
+
+    /* ── 6. 결과 화면 렌더링 ── */
+    function render(r){
+      if (r.ok){
+        count++;
+        document.getElementById('cnt').textContent = '확인 ' + count + '명';
+        beep(1320, 0.12); setTimeout(function(){ beep(1760, 0.14); }, 130);
+        vibe([40, 60, 40]);
+        show('ok', '✅', '참석이 확인되었습니다', r.person, chips(r.person), '');
+      } else if (r.code === 'ALREADY'){
+        beep(440, 0.3); vibe([120, 80, 120]);
+        show('warn', '⚠', '이미 출석 완료된 대상자입니다', r.person, chips(r.person), '출석일시: ' + (r.person ? r.person.참석일시 : ''));
+      } else if (r.code === 'NOT_FOUND'){
+        beep(220, 0.45); vibe([200, 100, 200]);
+        show('err', '❌', '사전신청 명단 없음', null, null, '사전신청 명단에서 확인되지 않습니다.\n현장 접수대(안내데스크) 직원에게 문의해 주세요.');
+      } else {
+        beep(220, 0.3);
+        show('err', '❌', r.msg || '확인 불가', null, null, '');
+      }
+    }
+
+    function chips(p){
+      if (!p) return '';
+      return '<div class="chips">' +
+        '<span class="chip seat">좌석 <b>' + (p.좌석배치 || '-') + '</b>구역</span>' +
+        '<span class="chip ticket">응모권 <b>' + (p.응모권 || '-') + '</b>번</span>' +
+        '<span class="chip">' + (p.소속지회 || '') + '지회</span>' +
+        '</div>';
+    }
+
+    function show(cls, ic, msg, person, chipHtml, sub){
+      var el = document.getElementById('res');
+      el.className = 'result ' + (cls || '');
+      var h = '<div class="ic">' + ic + '</div><div class="msg">' + msg + '</div>';
+      if (person) {
+        h += '<div class="nm">' + person.이름 + ' 선생님</div>' +
+             '<div class="sub">' + (person.소속지회 || '') + '지회 · ' + (person.기관명 || '') + '</div>';
+      }
+      if (sub) h += '<div class="sub" style="white-space:pre-line;margin-top:6px">' + sub + '</div>';
+      if (chipHtml) h += chipHtml;
+      el.innerHTML = h;
+    }
+
+    var actx = null;
+    function beep(freq, dur){
+      try {
+        if (!actx) actx = new (window.AudioContext || window.webkitAudioContext)();
+        if (actx.state === 'suspended') actx.resume();
+        var o = actx.createOscillator(), g = actx.createGain();
+        o.type = 'sine'; o.frequency.value = freq;
+        g.gain.setValueAtTime(0.001, actx.currentTime);
+        g.gain.exponentialRampToValueAtTime(0.28, actx.currentTime + 0.01);
+        g.gain.exponentialRampToValueAtTime(0.001, actx.currentTime + dur);
+        o.connect(g); g.connect(actx.destination);
+        o.start(); o.stop(actx.currentTime + dur + 0.02);
+      } catch(e){}
+    }
+    function vibe(pattern){ try { if (navigator.vibrate) navigator.vibrate(pattern); } catch(e){} }
+
+    document.addEventListener('click', function once(){
+      try { if (!actx) actx = new (window.AudioContext || window.webkitAudioContext)(); actx.resume(); } catch(e){}
+      document.removeEventListener('click', once);
+    });
+
+    startCamera();
+  </script>
+</body>
+</html>
