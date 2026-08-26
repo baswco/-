@@ -40,7 +40,7 @@
     /* 카메라 뷰파인더 */
     .camwrap {
       position: relative; background: #000; border-radius: 14px;
-      aspect-ratio: 4 / 3; max-height: 250px; overflow: hidden; border: 1.5px solid var(--line);
+      aspect-ratio: 4 / 3; max-height: 240px; overflow: hidden; border: 1.5px solid var(--line);
     }
     video { width: 100%; height: 100%; object-fit: cover; display: block; }
     canvas { display: none; }
@@ -56,12 +56,13 @@
       font-size: 12px; font-weight: 700; color: #fff; text-shadow: 0 1px 3px #000;
     }
 
-    /* 🌟 결과 표시 카드 (완료 화면 대폭 강화) */
+    /* 🌟 결과 표시 카드 (완료 화면) */
     .result {
-      padding: 20px 16px; text-align: center; min-height: 180px; display: flex;
+      position: relative;
+      padding: 20px 16px; text-align: center; min-height: 200px; display: flex;
       flex-direction: column; justify-content: center; background: var(--card);
       border: 2px solid var(--line); border-radius: 16px;
-      transition: all 0.25s ease-out;
+      transition: all 0.25s ease-out; overflow: hidden;
     }
     .result.pop { animation: pop 0.35s ease-out; }
     @keyframes pop {
@@ -70,7 +71,7 @@
       100% { transform: scale(1); }
     }
 
-    .result .ic { font-size: 44px; line-height: 1; margin-bottom: 6px; }
+    .result .ic { font-size: 42px; line-height: 1; margin-bottom: 6px; }
     .result .msg { font-size: 24px; font-weight: 900; letter-spacing: -0.5px; }
     .result .nm { font-size: 23px; font-weight: 900; margin-top: 8px; color: #fff; }
     .result .sub { font-size: 14.5px; color: var(--sub); margin-top: 3px; }
@@ -78,7 +79,7 @@
     /* 성공(완료) 스타일 */
     .result.ok {
       border-color: var(--ok-border); background: var(--ok-bg);
-      box-shadow: 0 0 20px rgba(15, 157, 88, 0.35);
+      box-shadow: 0 0 24px rgba(15, 157, 88, 0.4);
     }
     .result.ok .msg { color: #3ddc84; }
     
@@ -107,9 +108,25 @@
     .badge-box.seat .badge-value { color: #5eb2ff; }
     .badge-box.ticket .badge-value { color: #43e68c; }
 
-    .time-stamp {
-      font-size: 12px; color: #8b97a8; margin-top: 8px;
+    .time-stamp { font-size: 12px; color: #8b97a8; margin-top: 8px; }
+
+    /* ⏳ 타이머 프로그레스 바 */
+    .timer-bar {
+      position: absolute; bottom: 0; left: 0; height: 4px; background: #3ddc84;
+      width: 100%; transform-origin: left;
     }
+    .timer-bar.running { animation: timer 5s linear forwards; }
+    @keyframes timer {
+      from { transform: scaleX(1); }
+      to { transform: scaleX(0); }
+    }
+
+    /* 다음 사람 바로 스캔 버튼 */
+    .btn-next {
+      background: rgba(255, 255, 255, 0.12); color: #fff; border: 1px solid rgba(255, 255, 255, 0.25);
+      border-radius: 8px; padding: 7px 14px; font-size: 13px; font-weight: 700; margin-top: 10px; cursor: pointer;
+    }
+    .btn-next:active { background: rgba(255, 255, 255, 0.25); }
 
     /* 수동 입력 및 하단 조작부 */
     .control-box { background: var(--card); border: 1px solid var(--line); border-radius: 14px; padding: 14px; }
@@ -160,11 +177,12 @@
         <div class="camhint">QR 코드를 비추면 즉시 자동 처리됩니다</div>
       </div>
 
-      <!-- 🌟 대형 결과 안내 카드 -->
+      <!-- 🌟 결과 안내 카드 -->
       <div class="result" id="res">
         <div class="ic">📷</div>
         <div class="msg" style="font-size:18px;color:#9aa7b8">스캔 대기 중</div>
         <div class="sub">참가자 QR을 비추거나 아래에 번호를 입력하세요.</div>
+        <div class="timer-bar hide" id="timerBar"></div>
       </div>
 
       <!-- 수동 번호 입력 및 버튼 영역 -->
@@ -196,11 +214,13 @@
     var STAFF_KEY   = 'swc2026';
 
     var count = 0, busy = false, stream = null, raf = null, lastCode = '', lastAt = 0;
+    var holdUntil = 0; // 🌟 완료 화면 유지 타이머
+
     var v  = document.getElementById('v');
     var cv = document.getElementById('cv');
     var ctx= cv.getContext('2d', { willReadFrequently: true });
 
-    /* ── 1. 카메라 시작 (PC 웹캠 + 스마트폰 후면 카메라 모두 호환) ── */
+    /* ── 1. 카메라 시작 ── */
     function startCamera(){
       if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) return;
       
@@ -235,10 +255,12 @@
       setTimeout(startCamera, 300);
     }
 
-    /* ── 2. 실시간 비디오 프레임 스캔 루프 ── */
+    /* ── 2. 실시간 프레임 스캔 (5초 유지 중에는 스캔 중지) ── */
     function loop(){
       raf = requestAnimationFrame(loop);
-      if (busy || v.readyState !== v.HAVE_ENOUGH_DATA) return;
+      // 🌟 완료 화면 유지 중이거나 처리 중일 때는 스캔 건너뛰기
+      if (busy || Date.now() < holdUntil || v.readyState !== v.HAVE_ENOUGH_DATA) return;
+      
       var w = v.videoWidth, h = v.videoHeight;
       if (!w || !h) return;
       var size = Math.min(w, h);
@@ -294,7 +316,7 @@
     /* ── 4. 출석 체크 API 전송 ── */
     function handleScan(raw){
       var now = Date.now();
-      if (raw === lastCode && now - lastAt < 3500) return;
+      if (raw === lastCode && now - lastAt < 6000) return;
       lastCode = raw; lastAt = now;
       busy = true;
       playBeep(880, 0.06);
@@ -316,7 +338,6 @@
       });
     }
 
-    /* ── 5. 수동 입력 ── */
     function manualCheck(){
       var el = document.getElementById('manual');
       var t = el.value.trim();
@@ -328,7 +349,7 @@
       if (e.key === 'Enter') manualCheck();
     });
 
-    /* ── 6. 🌟 출석 완료 화면 렌더링 ── */
+    /* ── 5. 🌟 출석 완료 화면 렌더링 (5초 유지) ── */
     function render(r){
       var el = document.getElementById('res');
       el.classList.remove('pop');
@@ -337,35 +358,45 @@
       if (r.ok){
         count++;
         document.getElementById('cnt').textContent = '접수 ' + count + '명';
-        soundSuccess(); // 🎵 딩-동-댕 3단 차임벨
+        soundSuccess();
         vibe([50, 60, 50]);
         
+        // 🌟 5초 동안 화면 고정
+        holdUntil = Date.now() + 5000;
+
         var p = r.person || {};
         var badges = 
           '<div class="chips">' +
             '<div class="badge-box seat"><div class="badge-label">좌석 구역</div><div class="badge-value">' + (p.좌석배치 || '-') + '구역</div></div>' +
             '<div class="badge-box ticket"><div class="badge-label">응모권 번호</div><div class="badge-value">' + (p.응모권 || '-') + '번</div></div>' +
           '</div>' +
-          '<div class="time-stamp">⏱ 접수완료: ' + (p.참석일시 || '') + '</div>';
+          '<div class="time-stamp">⏱ 접수완료: ' + (p.참석일시 || '') + '</div>' +
+          '<button class="btn-next" onclick="nextScanNow()">⏩ 다음 참가자 바로 스캔</button>';
 
-        show('ok pop', '✅', '🎉 정상 접수 완료', p, badges, '');
+        show('ok pop', '✅', '참석 확인되었습니다', p, badges, '');
+        startTimerBar(5000);
 
       } else if (r.code === 'ALREADY'){
         soundWarn();
         vibe([120, 80, 120]);
+        holdUntil = Date.now() + 4000; // 4초 유지
+
         var p = r.person || {};
         var badges = 
           '<div class="chips">' +
             '<div class="badge-box seat"><div class="badge-label">좌석 구역</div><div class="badge-value">' + (p.좌석배치 || '-') + '구역</div></div>' +
             '<div class="badge-box ticket"><div class="badge-label">응모권 번호</div><div class="badge-value">' + (p.응모권 || '-') + '번</div></div>' +
           '</div>' +
-          '<div class="time-stamp" style="color:#ffc94d">⚠ 기존 접수시간: ' + (p.참석일시 || '') + '</div>';
+          '<div class="time-stamp" style="color:#ffc94d">⚠ 기존 접수시간: ' + (p.참석일시 || '') + '</div>' +
+          '<button class="btn-next" onclick="nextScanNow()">⏩ 다음 참가자 바로 스캔</button>';
 
         show('warn pop', '⚠', '이미 출석 완료된 QR', p, badges, '');
+        startTimerBar(4000);
 
       } else if (r.code === 'NOT_FOUND'){
         soundErr();
         vibe([200, 100, 200]);
+        holdUntil = Date.now() + 4500; // 4.5초 유지
         show('err pop', '❌', '사전신청 명단 없음', null, null, '사전신청 명단에서 확인되지 않습니다.\n현장 접수대(안내데스크) 직원에게 문의해 주세요.');
       } else {
         soundErr();
@@ -383,10 +414,27 @@
       }
       if (chipHtml) h += chipHtml;
       if (sub) h += '<div class="sub" style="white-space:pre-line;margin-top:8px">' + sub + '</div>';
+      h += '<div class="timer-bar hide" id="timerBar"></div>';
       el.innerHTML = h;
     }
 
-    /* ── 7. 🎵 사운드 효과 (완료/경고/오류) ── */
+    /* ── 6. 타이머 바 및 즉시 다음 스캔 ── */
+    function startTimerBar(ms){
+      var bar = document.getElementById('timerBar');
+      if (!bar) return;
+      bar.classList.remove('hide');
+      bar.style.animation = 'none';
+      void bar.offsetWidth;
+      bar.style.animation = 'timer ' + (ms/1000) + 's linear forwards';
+    }
+
+    function nextScanNow(){
+      holdUntil = 0;
+      lastCode = '';
+      show('', '📷', '스캔 대기 중', null, null, '다음 참가자 QR을 비춰주세요.');
+    }
+
+    /* ── 7. 🎵 사운드 효과 ── */
     var actx = null;
     function getAudio(){
       if (!actx) actx = new (window.AudioContext || window.webkitAudioContext)();
@@ -407,21 +455,16 @@
       } catch(e){}
     }
 
-    // 성공 시: 딩-동-댕 🎵 (3단 상승 화음)
     function soundSuccess(){
       playBeep(880, 0.1);
       setTimeout(function(){ playBeep(1320, 0.12); }, 110);
       setTimeout(function(){ playBeep(1760, 0.16); }, 230);
     }
-    // 중복 시: 뚜-둥
     function soundWarn(){
       playBeep(554, 0.15);
       setTimeout(function(){ playBeep(440, 0.25); }, 160);
     }
-    // 오류 시: 삑-
-    function soundErr(){
-      playBeep(220, 0.35);
-    }
+    function soundErr(){ playBeep(220, 0.35); }
 
     function vibe(pattern){ try { if (navigator.vibrate) navigator.vibrate(pattern); } catch(e){} }
 
