@@ -1,344 +1,485 @@
-/*************************************************************************
- * 01_메인.gs — 화면 라우팅 / 최초 1회 초기설정 / 시트 실시간 수동 동기화
- *************************************************************************/
-
-/**
- * 스프레드시트를 열면 상단에 [사대회 시스템] 메뉴가 생깁니다.
- */
-function onOpen() {
-  SpreadsheetApp.getUi()
-    .createMenu('사대회 시스템')
-    .addItem('① 초기설정 실행', '초기설정')
-    .addSeparator()
-    .addItem('② 신청 화면 열기', '메뉴_신청화면')
-    .addItem('③ 알림톡 치환 미리보기', '메뉴_미리보기')
-    .addSeparator()
-    .addItem('현장 접수 스캐너 주소', '메뉴_스캐너')
-    .addItem('참가자 조회 주소', '메뉴_조회')
-    .addToUi();
-}
-
-function 메뉴_신청화면() { 주소창_(getWebAppUrl_(), '참가신청 화면'); }
-function 메뉴_미리보기() { 주소창_(getWebAppUrl_() + '?p=preview&k=' + CONFIG.STAFF_KEY, '알림톡 치환 미리보기'); }
-function 메뉴_스캐너()   { 주소창_(getWebAppUrl_() + '?p=scan&k=' + CONFIG.STAFF_KEY, '현장 접수 스캐너'); }
-function 메뉴_조회()     { 주소창_(getWebAppUrl_() + '?p=find&k=' + CONFIG.STAFF_KEY, '참가자 조회'); }
-
-function 주소창_(url, title) {
-  const ui = SpreadsheetApp.getUi();
-  if (!url) {
-    ui.alert('아직 웹앱이 배포되지 않았습니다.\n배포 → 새 배포 를 먼저 해주세요.');
-    return;
-  }
-  const html = HtmlService.createHtmlOutput(
-    '<div style="font-family:sans-serif;padding:18px 16px">' +
-    '<p style="margin:0 0 12px;font-size:13px;color:#555">아래 버튼으로 새 창에서 열거나, 주소를 복사해 쓰세요.</p>' +
-    '<a href="' + url + '" target="_blank" style="display:block;background:#16345C;color:#fff;' +
-    'text-align:center;padding:12px;border-radius:8px;text-decoration:none;font-weight:700">' +
-    title + ' 열기</a>' +
-    '<textarea readonly onclick="this.select()" style="width:100%;margin-top:12px;height:64px;' +
-    'font-size:12px;padding:8px;border:1px solid #ddd;border-radius:6px;box-sizing:border-box">' +
-    url + '</textarea></div>')
-    .setWidth(420).setHeight(210);
-  ui.showModalDialog(html, title);
-}
-
-
-/**
- * 🌟 [실시간 동기화 트리거] 종합 시트 ↔ 지회 시트 수동 체크 'O' 자동 반영
- */
-function onEdit(e) {
-  try {
-    if (!e || !e.range) return;
-    const sheet = e.range.getSheet();
-    const sheetName = sheet.getName();
-    const col = e.range.getColumn();
-    const row = e.range.getRow();
-    const numRows = e.range.getNumRows();
-
-    if (row < 2) return; // 헤더 제외
-
-    // 1) [종합] 시트의 J열(참석확인, 10열) 수정 시 -> 해당 지회 시트로 즉시 동기화
-    if (sheetName === CONFIG.MASTER_SHEET && col === COL.참석확인) {
-      const ss = e.source || SpreadsheetApp.getActiveSpreadsheet();
-      for (let r = row; r < row + numRows; r++) {
-        const val = String(sheet.getRange(r, COL.참석확인).getValue() || '').trim();
-        const isAttended = (val.toUpperCase() === 'O' || val === 'ㅇ' || val === 'o' || val === '0');
-        const mark = isAttended ? 'O' : (val === '' ? '' : val);
-
-        const token  = String(sheet.getRange(r, COL.토큰).getValue() || '').trim();
-        const branch = String(sheet.getRange(r, COL.소속지회).getValue() || '').trim();
-        if (!token || !branch) continue;
-
-        const bSheet = ss.getSheetByName(branch);
-        if (!bSheet || bSheet.getLastRow() < 2) continue;
-
-        // 참석시간 처리
-        const nowStamp = Utilities.formatDate(new Date(), 'Asia/Seoul', 'yyyy-MM-dd HH:mm:ss');
-        let curTime = String(sheet.getRange(r, COL.참석일시).getValue() || '').trim();
-        let timeToSet = '';
-        if (isAttended) {
-          timeToSet = curTime || nowStamp;
-          if (!curTime) sheet.getRange(r, COL.참석일시).setValue(timeToSet);
-        } else if (val === '') {
-          sheet.getRange(r, COL.참석일시).setValue('');
-        }
-
-        // 지회 시트에서 같은 토큰 찾아서 동기화
-        const bTokens = bSheet.getRange(2, COL.토큰, bSheet.getLastRow() - 1, 1).getValues();
-        for (let i = 0; i < bTokens.length; i++) {
-          if (String(bTokens[i][0]).trim() === token) {
-            bSheet.getRange(i + 2, COL.참석확인).setValue(mark);
-            bSheet.getRange(i + 2, COL.참석일시).setValue(timeToSet);
-            break;
-          }
-        }
-      }
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+  <title>2026 사대회 현장 접수 스캐너</title>
+  <script src="https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.js"></script>
+  <style>
+    :root {
+      --navy: #0f2f5c; --navy2: #1a4b8c; --accent: #1f7ae0;
+      --ok: #0f9d58; --ok-bg: #e6f4ea; --ok-border: #34a853;
+      --warn: #f29900; --warn-bg: #fef7e0;
+      --err: #d93025; --err-bg: #fce8e6;
+      --bg: #f4f6fa; --card: #ffffff; --line: #e3e8ef; --ink: #16202e; --sub: #6b7684;
+    }
+    * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+    html, body { margin: 0; padding: 0; min-height: 100%; }
+    body {
+      background: var(--bg); color: var(--ink);
+      font-family: 'Pretendard', -apple-system, BlinkMacSystemFont, 'Malgun Gothic', sans-serif;
+      font-size: 15px; line-height: 1.5;
+      -webkit-text-size-adjust: 100%;
+    }
+    .wrap {
+      max-width: 480px; margin: 0 auto; min-height: 100vh;
+      display: flex; flex-direction: column; padding-bottom: 24px;
     }
 
-    // 2) [지회] 시트의 J열(참석확인) 수정 시 -> [종합] 시트로 역동기화
-    if (sheetName !== CONFIG.MASTER_SHEET && sheetName !== CONFIG.LOG_SHEET && col === COL.참석확인) {
-      const ss = e.source || SpreadsheetApp.getActiveSpreadsheet();
-      const mSheet = ss.getSheetByName(CONFIG.MASTER_SHEET);
-      if (!mSheet || mSheet.getLastRow() < 2) return;
-
-      for (let r = row; r < row + numRows; r++) {
-        const val = String(sheet.getRange(r, COL.참석확인).getValue() || '').trim();
-        const isAttended = (val.toUpperCase() === 'O' || val === 'ㅇ' || val === 'o' || val === '0');
-        const mark = isAttended ? 'O' : (val === '' ? '' : val);
-
-        const token = String(sheet.getRange(r, COL.토큰).getValue() || '').trim();
-        if (!token) continue;
-
-        const nowStamp = Utilities.formatDate(new Date(), 'Asia/Seoul', 'yyyy-MM-dd HH:mm:ss');
-        let curTime = String(sheet.getRange(r, COL.참석일시).getValue() || '').trim();
-        let timeToSet = '';
-        if (isAttended) {
-          timeToSet = curTime || nowStamp;
-          if (!curTime) sheet.getRange(r, COL.참석일시).setValue(timeToSet);
-        } else if (val === '') {
-          sheet.getRange(r, COL.참석일시).setValue('');
-        }
-
-        const mTokens = mSheet.getRange(2, COL.토큰, mSheet.getLastRow() - 1, 1).getValues();
-        for (let i = 0; i < mTokens.length; i++) {
-          if (String(mTokens[i][0]).trim() === token) {
-            mSheet.getRange(i + 2, COL.참석확인).setValue(mark);
-            mSheet.getRange(i + 2, COL.참석일시).setValue(timeToSet);
-            break;
-          }
-        }
-      }
+    /* 상단 헤더 */
+    .top {
+      padding: 14px 18px; display: flex; align-items: center; gap: 10px;
+      background: var(--navy); color: #fff; position: sticky; top: 0; z-index: 100;
+      box-shadow: 0 2px 6px rgba(0,0,0,0.1);
     }
-  } catch (err) {
-    console.error('onEdit Error:', err);
-  }
-}
+    .dot { width: 10px; height: 10px; border-radius: 50%; background: #8ba0bd; }
+    .dot.on { background: #3ddc84; box-shadow: 0 0 0 4px rgba(61, 220, 132, 0.3); }
+    .dot.paused { background: #f29900; box-shadow: 0 0 0 4px rgba(242, 153, 0, 0.3); }
+    .top .t { font-weight: 800; font-size: 16px; letter-spacing: -0.3px; }
+    .top .c { margin-left: auto; font-size: 14px; font-weight: 800; color: #b8d4f8; }
 
+    .main-body { padding: 12px; display: flex; flex-direction: column; gap: 12px; }
 
-/**
- * 웹앱 진입점
- */
-function doGet(e) {
-  const p = (e && e.parameter && e.parameter.p) || 'apply';
-
-  try {
-    if (p === 'api')  return apiRouter_(e);
-
-    if (p === 'qr') {
-      const t = tpl_('11_QR');
-      t.data = getQrPageData_((e.parameter.t || '').trim());
-      return render_(t, CONFIG.EVENT_TITLE + ' 입장 QR');
+    /* 📸 카메라 뷰파인더 */
+    .camwrap {
+      position: relative; background: #e9eef6; border-radius: 14px;
+      width: 100%; height: 280px; overflow: hidden; border: 2px solid var(--line);
+      display: flex; align-items: center; justify-content: center;
+    }
+    video { width: 100%; height: 100%; object-fit: cover; display: block; }
+    canvas { display: none; }
+    
+    .frame {
+      position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; pointer-events: none;
+    }
+    .frame i {
+      width: 65%; aspect-ratio: 1/1; border: 3px solid #1f7ae0; border-radius: 18px;
+      box-shadow: 0 0 0 2000px rgba(0, 0, 0, 0.35);
+    }
+    .camhint {
+      position: absolute; left: 0; right: 0; bottom: 8px; text-align: center;
+      font-size: 12px; font-weight: 700; color: #fff; text-shadow: 0 1px 3px #000;
     }
 
-    if (p === 'scan') {
-      if (!checkStaffKey_(e)) return denied_();
-      const t = tpl_('12_스캐너');
-      t.staffKey = CONFIG.STAFF_KEY;
-      return render_(t, '현장 접수 스캐너');
+    /* 카메라 미연결 시 안내 카드 */
+    .cam-fallback {
+      display: flex; flex-direction: column; align-items: center; justify-content: center;
+      padding: 20px; text-align: center; gap: 10px; z-index: 5;
+    }
+    .cam-fallback .ic { font-size: 40px; }
+    .cam-fallback .t1 { font-size: 16px; font-weight: 800; color: var(--navy); }
+    .cam-fallback .t2 { font-size: 13px; color: var(--sub); line-height: 1.4; }
+
+    .cam-overlay {
+      position: absolute; inset: 0; background: rgba(15, 47, 92, 0.88);
+      display: flex; flex-direction: column; align-items: center; justify-content: center;
+      font-weight: 800; font-size: 17px; color: #3ddc84; z-index: 10; gap: 6px;
     }
 
-    if (p === 'find') {
-      if (!checkStaffKey_(e)) return denied_();
-      const t = tpl_('14_조회');
-      t.staffKey = CONFIG.STAFF_KEY;
-      return render_(t, '참가자 조회');
+    /* 🌟 슬림 결과창 */
+    .result {
+      position: relative;
+      padding: 16px 14px; text-align: center; min-height: 90px; display: flex;
+      flex-direction: column; justify-content: center; background: #fff;
+      border: 2px solid var(--line); border-radius: 14px;
+      transition: all 0.25s ease-out; overflow: hidden;
+      box-shadow: 0 2px 8px rgba(16, 32, 56, 0.05);
+    }
+    .result.pop { animation: pop 0.3s ease-out; }
+    @keyframes pop { 0% { transform: scale(0.97); } 50% { transform: scale(1.01); } 100% { transform: scale(1); } }
+
+    .result .idle-row { display: flex; align-items: center; justify-content: center; gap: 8px; color: var(--sub); font-weight: 700; }
+    .result .idle-row .ic { font-size: 24px; }
+    .result .idle-row .msg { font-size: 15.5px; color: var(--ink); }
+
+    .result .msg { font-size: 21px; font-weight: 900; letter-spacing: -0.3px; }
+    .result .nm { font-size: 19px; font-weight: 900; margin-top: 4px; color: var(--navy); }
+
+    .result.ok { border-color: var(--ok-border); background: var(--ok-bg); }
+    .result.ok .msg { color: #0b8043; }
+    .result.warn { border-color: var(--warn); background: var(--warn-bg); }
+    .result.warn .msg { color: #b06000; }
+    .result.err { border-color: var(--err); background: var(--err-bg); }
+    .result.err .msg { color: #c5221f; }
+
+    /* 🎟 응모권 번호 대형 뱃지 (좌석배치는 완전 삭제) */
+    .ticket-badge-box {
+      margin-top: 8px; padding: 10px 14px; border-radius: 10px;
+      background: #fff; border: 2px solid var(--ok);
+      display: flex; align-items: center; justify-content: center; gap: 10px;
+    }
+    .ticket-label { font-size: 13.5px; color: var(--sub); font-weight: 700; }
+    .ticket-val { font-size: 26px; font-weight: 900; color: #0b8043; line-height: 1; }
+
+    .time-stamp { font-size: 12px; color: var(--sub); margin-top: 6px; }
+
+    .timer-bar {
+      position: absolute; bottom: 0; left: 0; height: 4px; background: var(--ok);
+      width: 100%; transform-origin: left;
+    }
+    .timer-bar.running { animation: timer 6s linear forwards; }
+    @keyframes timer { from { transform: scaleX(1); } to { transform: scaleX(0); } }
+
+    .btn-next {
+      background: var(--navy); color: #fff; border: 0;
+      border-radius: 8px; padding: 8px 14px; font-size: 13px; font-weight: 800; margin-top: 8px; cursor: pointer;
     }
 
-    if (p === 'preview') {
-      if (!checkStaffKey_(e)) return denied_();
-      const t = tpl_('15_미리보기');
-      t.staffKey = CONFIG.STAFF_KEY;
-      t.branches = BRANCHES;
-      return render_(t, '알림톡 치환 미리보기');
+    /* 수동 입력 및 하단 조작부 */
+    .control-box {
+      background: #fff; border: 1px solid var(--line); border-radius: 14px; padding: 14px;
+      box-shadow: 0 2px 8px rgba(16, 32, 56, 0.05);
+    }
+    .row { display: flex; gap: 8px; }
+    input[type=text] {
+      flex: 1; padding: 12px 14px; border-radius: 10px; border: 1.5px solid var(--line);
+      background: #f8fafc; color: var(--ink); font-size: 15px; outline: none; font-family: inherit;
+    }
+    input[type=text]:focus { border-color: var(--accent); background: #fff; }
+    
+    button {
+      border: 0; border-radius: 10px; font-weight: 700; cursor: pointer; font-family: inherit;
+    }
+    .btn-submit { background: var(--navy); color: #fff; padding: 12px 18px; font-size: 15px; }
+    
+    .btn-camera {
+      display: flex; align-items: center; justify-content: center; gap: 8px;
+      width: 100%; padding: 14px; margin-top: 10px; background: var(--ok); color: #fff;
+      border-radius: 10px; font-size: 16px; font-weight: 800;
+      box-shadow: 0 4px 12px rgba(15, 157, 88, 0.25);
+    }
+    .btn-restart {
+      background: #f1f3f7; color: var(--sub); border: 1px solid var(--line);
+      padding: 10px; width: 100%; margin-top: 10px; font-size: 13px;
+    }
+    .note { font-size: 12px; color: var(--sub); margin-top: 10px; line-height: 1.5; text-align: center; }
+    .hide { display: none !important; }
+  </style>
+</head>
+<body>
+
+  <div class="wrap">
+    <div class="top">
+      <span class="dot" id="dot"></span>
+      <span class="t">2026 사대회 현장 접수</span>
+      <span class="c" id="cnt">접수 0명</span>
+    </div>
+
+    <div class="main-body">
+      <!-- 📸 카메라 뷰파인더 -->
+      <div class="camwrap" id="camwrap">
+        <video id="v" autoplay playsinline muted webkit-playsinline></video>
+        <canvas id="cv"></canvas>
+        <div class="frame" id="camFrame"><i></i></div>
+        <div class="camhint" id="camHint">QR 코드를 비추면 즉시 자동 처리됩니다</div>
+
+        <!-- 카메라 미연결 시 버튼 안내창 -->
+        <div class="cam-fallback hide" id="camFallback">
+          <div class="ic">📷</div>
+          <div class="t1">실시간 카메라 시작하기</div>
+          <div class="t2">아래 버튼을 눌러 카메라 권한을 허용해 주세요.</div>
+          <button class="btn-submit" onclick="userStartCamera()">📷 카메라 켜기</button>
+        </div>
+
+        <div class="cam-overlay hide" id="camOverlay">
+          <span>✅ 참석 확인 완료</span>
+          <small style="font-size:12px;opacity:0.85">(6초 유지 중...)</small>
+        </div>
+      </div>
+
+      <!-- 🌟 슬림 결과창 -->
+      <div class="result" id="res">
+        <div class="idle-row">
+          <span class="ic">📷</span>
+          <span class="msg">스캔 대기 중 (QR을 비춰주세요)</span>
+        </div>
+        <div class="timer-bar hide" id="timerBar"></div>
+      </div>
+
+      <!-- 수동 번호 입력 및 버튼 영역 -->
+      <div class="control-box">
+        <div class="row">
+          <input type="text" id="manual" placeholder="접수번호(R00002) 또는 이름 입력" autocomplete="off">
+          <button class="btn-submit" onclick="manualCheck()">확인</button>
+        </div>
+
+        <input type="file" id="fileCam" accept="image/*" capture="environment" class="hide" onchange="onScanFile(this)">
+        <button class="btn-camera" onclick="document.getElementById('fileCam').click()">
+          📸 사진 촬영으로 QR 인식
+        </button>
+
+        <button class="btn-restart" onclick="userStartCamera()">🔄 카메라 다시 시작</button>
+
+        <div class="note">
+          · 접수번호(<b>R00002</b>), <b>이름</b>, <b>연락처</b>로도 검색 및 출석이 가능합니다.<br>
+          · 실시간 화면이 안 나올 땐 <b>[사진 촬영으로 QR 인식]</b>을 이용하세요.
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    var WEB_APP_URL = 'https://script.google.com/macros/s/AKfycbztTWFK3i3F3sjXkeZujNA53ZSnZet_QKWyGIi9cwhVcrFrgPW1gu4FsklnXtqceQdl/exec';
+    var STAFF_KEY   = 'swc2026';
+
+    var count = 0, isProcessing = false, isPaused = false, lockTimer = null, lastScannedValue = '';
+    var v  = document.getElementById('v');
+    var cv = document.getElementById('cv');
+    var ctx= cv.getContext('2d', { willReadFrequently: true });
+    var fallbackEl = document.getElementById('camFallback');
+
+    function userStartCamera(){
+      fallbackEl.classList.add('hide');
+      startCamera();
     }
 
-    // 기본: 신청 화면
-    const t = tpl_('10_신청');
-    t.branches     = BRANCHES.map(function (b) { return b.name || b; });
-    t.eventTitle   = CONFIG.EVENT_TITLE;
-    t.templateUrl  = templateDownloadUrl_();
-    t.openState    = openState_();
-    return render_(t, CONFIG.EVENT_TITLE + ' ' + CONFIG.EVENT_SUBTITLE);
-
-  } catch (err) {
-    return HtmlService.createHtmlOutput(
-      '<div style="font-family:sans-serif;padding:40px;text-align:center">' +
-      '<h3>일시적인 오류가 발생했습니다</h3><p style="color:#888">' +
-      escapeHtml_(String(err)) + '</p></div>');
-  }
-}
-
-/** 외부(GitHub Pages 등)에서 POST 로 호출할 때 */
-function doPost(e) {
-  return apiRouter_(e);
-}
-
-
-/* ── 라우팅 도우미 ─────────────────────────────────────────── */
-
-function tpl_(file) { return HtmlService.createTemplateFromFile(file); }
-
-function render_(t, title) {
-  return t.evaluate()
-    .setTitle(title)
-    .addMetaTag('viewport', 'width=device-width, initial-scale=1, maximum-scale=1, viewport-fit=cover')
-    .setXFrameOptionsMode(HtmlService.XFrameOptionsMode.ALLOWALL);
-}
-
-function checkStaffKey_(e) {
-  const k = (e && e.parameter && e.parameter.k) || '';
-  return k === CONFIG.STAFF_KEY;
-}
-
-function denied_() {
-  return HtmlService.createHtmlOutput(
-    '<div style="font-family:sans-serif;padding:60px 20px;text-align:center">' +
-    '<div style="font-size:44px">🔒</div>' +
-    '<h3 style="margin:12px 0 4px">접근 권한이 없습니다</h3>' +
-    '<p style="color:#888;font-size:14px">직원용 주소로 접속해 주세요.</p></div>');
-}
-
-function getWebAppUrl_() {
-  const saved = PROP_('WEB_APP_URL');
-  if (saved) return saved;
-  return ScriptApp.getService().getUrl();
-}
-
-function templateDownloadUrl_() {
-  if (!CONFIG.TEMPLATE_FILE_ID) return '';
-  return 'https://drive.google.com/uc?export=download&id=' + CONFIG.TEMPLATE_FILE_ID;
-}
-
-function openState_() {
-  const now = new Date();
-  if (CONFIG.OPEN_AT) {
-    const s = parseKst_(CONFIG.OPEN_AT);
-    if (s && now < s) return { open: false, msg: '아직 신청 기간이 아닙니다. (' + CONFIG.OPEN_AT + ' 오픈)' };
-  }
-  if (CONFIG.CLOSE_AT) {
-    const t = parseKst_(CONFIG.CLOSE_AT);
-    if (t && now > t) return { open: false, msg: '신청이 마감되었습니다.' };
-  }
-  return { open: true, msg: '' };
-}
-
-function parseKst_(s) {
-  const m = String(s).match(/^(\d{4})-(\d{2})-(\d{2})[ T](\d{2}):(\d{2})/);
-  if (!m) return null;
-  return new Date(+m, +m - 1, +m, +m, +m, 0);
-}
-
-
-/*************************************************************************
- * ★ 최초 1회 실행 ★
- *************************************************************************/
-function 초기설정() {
-  const ss = SpreadsheetApp.openById(CONFIG.SPREADSHEET_ID);
-
-  const names = [CONFIG.MASTER_SHEET].concat(
-    BRANCHES.map(function (b) { return b.name || b; })
-  );
-
-  names.forEach(function (name) {
-    let sh = ss.getSheetByName(name);
-    if (!sh) {
-      if (name === CONFIG.MASTER_SHEET) {
-        sh = ss.insertSheet(name);
-      } else if (CONFIG.AUTO_CREATE_BRANCH_SHEET) {
-        sh = ss.insertSheet(name);
-      } else {
+    function startCamera(){
+      if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+        showFallback();
         return;
       }
+      navigator.mediaDevices.getUserMedia({
+        video: { facingMode: { ideal: 'environment' } },
+        audio: false
+      }).then(handleStreamSuccess)
+      .catch(function(){
+        navigator.mediaDevices.getUserMedia({ video: true, audio: false })
+          .then(handleStreamSuccess)
+          .catch(function(err){
+            console.log('Camera error:', err);
+            showFallback();
+          });
+      });
     }
-    prepareSheet_(sh);
-  });
 
-  let log = ss.getSheetByName(CONFIG.LOG_SHEET);
-  if (!log) {
-    log = ss.insertSheet(CONFIG.LOG_SHEET);
-    log.getRange(1, 1, 1, 7)
-       .setValues([['시각', '구분', '이름', '연락처', '템플릿', '결과', '메시지']])
-       .setFontWeight('bold');
-    log.setFrozenRows(1);
-  }
+    function handleStreamSuccess(s){
+      v.srcObject = s;
+      v.setAttribute('playsinline', '');
+      v.setAttribute('autoplay', '');
+      v.setAttribute('muted', '');
+      v.onloadedmetadata = function(){
+        v.play().then(function(){
+          fallbackEl.classList.add('hide');
+          document.getElementById('dot').className = 'dot on';
+          loop();
+        }).catch(function(){
+          showFallback();
+        });
+      };
+    }
 
-  const seq = syncTicketCounter_();
+    function showFallback(){
+      fallbackEl.classList.remove('hide');
+      document.getElementById('dot').className = 'dot';
+    }
 
-  try {
-    const url = ScriptApp.getService().getUrl();
-    if (url) PropertiesService.getScriptProperties().setProperty('WEB_APP_URL', url);
-  } catch (ignore) {}
+    function loop(){
+      requestAnimationFrame(loop);
+      if (isPaused || isProcessing || v.readyState !== v.HAVE_ENOUGH_DATA) return;
+      var w = v.videoWidth, h = v.videoHeight;
+      if (!w || !h) return;
+      var size = Math.min(w, h);
+      cv.width = 500; cv.height = 500;
+      ctx.drawImage(v, (w - size)/2, (h - size)/2, size, size, 0, 0, 500, 500);
+      var img = ctx.getImageData(0, 0, 500, 500);
+      var code = jsQR(img.data, img.width, img.height, { inversionAttempts: 'dontInvert' });
+      if (code && code.data) {
+        var scanned = String(code.data).trim();
+        if (scanned === lastScannedValue) return;
+        handleScan(scanned);
+      }
+    }
 
-  SpreadsheetApp.flush();
+    function onScanFile(input) {
+      var file = input.files[0];
+      if (!file) return;
+      isProcessing = true;
+      showIdle('⏳ 사진 분석 중...');
 
-  const msg = '초기설정 완료\n\n' +
-    '· 정리한 시트: ' + names.join(', ') + '\n' +
-    '· 다음 응모권 번호: ' + (seq + 1) + '번\n' +
-    '· 웹앱 주소: ' + (getWebAppUrl_() || '(배포 후 자동 등록)');
-  Logger.log(msg);
-  return msg;
-}
+      var reader = new FileReader();
+      reader.onload = function(e) {
+        var img = new Image();
+        img.onload = function() {
+          var canvas = document.createElement('canvas');
+          var c = canvas.getContext('2d');
+          var maxDim = 1200, w = img.width, h = img.height;
+          if (w > maxDim || h > maxDim) {
+            if (w > h) { h = Math.round(h * maxDim / w); w = maxDim; }
+            else { w = Math.round(w * maxDim / h); h = maxDim; }
+          }
+          canvas.width = w; canvas.height = h;
+          c.drawImage(img, 0, 0, w, h);
+          var imgData = c.getImageData(0, 0, w, h);
+          var code = jsQR(imgData.data, imgData.width, imgData.height, { inversionAttempts: 'dontInvert' }) ||
+                     jsQR(imgData.data, imgData.width, imgData.height, { inversionAttempts: 'attemptBoth' });
 
-function prepareSheet_(sh) {
-  sh.getRange(1, 1, 1, LAST_COL).setValues([HEADERS])
-    .setFontWeight('bold')
-    .setHorizontalAlignment('center')
-    .setBackground('#f1f3f4');
-  sh.setFrozenRows(1);
+          isProcessing = false;
+          if (code && code.data) {
+            handleScan(String(code.data).trim());
+          } else {
+            soundErr();
+            showResult('err pop', '❌ QR 인식 실패', null, 'QR 코드가 선명하게 나오도록 다시 촬영해 주세요.');
+          }
+        };
+        img.src = e.target.result;
+      };
+      reader.readAsDataURL(file);
+      input.value = '';
+    }
 
-  const rows = Math.max(sh.getMaxRows() - 1, 1);
-  [COL.생년월일, COL.연락처, COL.접수번호, COL.토큰].forEach(function (c) {
-    sh.getRange(2, c, rows, 1).setNumberFormat('@');
-  });
-  sh.getRange(2, COL.응모권, rows, 1).setNumberFormat('0');
+    function handleScan(raw){
+      if (isPaused || isProcessing) return;
+      isPaused = true; isProcessing = true; lastScannedValue = raw;
 
-  try {
-    sh.setColumnWidth(COL.이름, 90);
-    sh.setColumnWidth(COL.생년월일, 90);
-    sh.setColumnWidth(COL.연락처, 120);
-    sh.setColumnWidth(COL.기관명, 200);
-    sh.setColumnWidth(COL.소속지회, 90);
-    sh.setColumnWidth(COL.신청형태, 100);
-    sh.setColumnWidth(COL.QR, 260);
-    sh.setColumnWidth(COL.토큰, 170);
-    sh.setColumnWidth(COL.신청일시, 140);
-    sh.setColumnWidth(COL.참석일시, 140);
-  } catch (ignore) {}
+      playBeep(880, 0.06);
+      showIdle('⏳ 출석 처리 중...');
 
-  try {
-    const rng = sh.getRange(2, COL.참석확인, rows, 1);
-    const rule = SpreadsheetApp.newConditionalFormatRule()
-      .whenTextEqualTo('O')
-      .setBackground('#d9ead3')
-      .setFontColor('#137333')
-      .setBold(true)
-      .setRanges([rng])
-      .build();
-    const rules = sh.getConditionalFormatRules().filter(function (r) {
-      return r.getRanges()[0].getColumn() !== COL.참석확인;
+      fetch(WEB_APP_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+        body: JSON.stringify({ a: 'checkin', t: raw, k: STAFF_KEY })
+      })
+      .then(function(res){ return res.json(); })
+      .then(function(r){
+        isProcessing = false;
+        render(r);
+      })
+      .catch(function(err){
+        isProcessing = false; isPaused = false;
+        showResult('err', '⚠ 통신 오류', null, '인터넷 연결을 확인하고 다시 시도해 주세요.');
+      });
+    }
+
+    function manualCheck(){
+      var el = document.getElementById('manual');
+      var t = el.value.trim();
+      if (!t) return;
+      el.value = ''; lastScannedValue = '';
+      handleScan(t);
+    }
+    document.getElementById('manual').addEventListener('keydown', function(e){
+      if (e.key === 'Enter') manualCheck();
     });
-    rules.push(rule);
-    sh.setConditionalFormatRules(rules);
-    rng.setHorizontalAlignment('center');
-  } catch (ignore) {}
-}
+
+    /* ── 🌟 출석 완료 화면 렌더링 (응모권 번호만 강조) ── */
+    function render(r){
+      var el = document.getElementById('res');
+      el.classList.remove('pop');
+      void el.offsetWidth;
+      document.getElementById('dot').className = 'dot paused';
+
+      if (r.ok){
+        count++;
+        document.getElementById('cnt').textContent = '접수 ' + count + '명';
+        soundSuccess(); vibe([50, 60, 50]);
+        
+        var p = r.person || {};
+        var ticketHtml = 
+          '<div class="ticket-badge-box">' +
+            '<span class="ticket-label">🎟 경품 응모권 번호</span>' +
+            '<span class="ticket-val">' + (p.응모권 || '-') + '번</span>' +
+          '</div>' +
+          '<div class="time-stamp">⏱ 접수: ' + (p.참석일시 || '') + '</div>' +
+          '<button class="btn-next" onclick="unlockScan()">⏩ 다음 스캔 바로하기</button>';
+
+        showResult('ok pop', '✅ 참석 확인 완료', p, ticketHtml);
+        lockCameraForSeconds(6);
+
+      } else if (r.code === 'ALREADY'){
+        soundWarn(); vibe([120, 80, 120]);
+        var p = r.person || {};
+        var ticketHtml = 
+          '<div class="ticket-badge-box" style="border-color:var(--warn);background:#fff">' +
+            '<span class="ticket-label">🎟 응모권 번호</span>' +
+            '<span class="ticket-val" style="color:#b06000">' + (p.응모권 || '-') + '번</span>' +
+          '</div>' +
+          '<div class="time-stamp" style="color:#b06000">⚠ 기존 접수시간: ' + (p.참석일시 || '') + '</div>' +
+          '<button class="btn-next" onclick="unlockScan()">⏩ 다음 스캔 바로하기</button>';
+
+        showResult('warn pop', '⚠ 이미 출석된 QR', p, ticketHtml);
+        lockCameraForSeconds(5);
+
+      } else if (r.code === 'NOT_FOUND'){
+        soundErr(); vibe([200, 100, 200]);
+        showResult('err pop', '❌ 사전신청 명단 없음', null, '사전신청 명단에서 확인되지 않습니다.\n현장 접수대(안내데스크)에 문의해 주세요.');
+        lockCameraForSeconds(5);
+      } else {
+        soundErr();
+        showResult('err pop', '❌ ' + (r.msg || '확인 불가'), null, '');
+        lockCameraForSeconds(4);
+      }
+    }
+
+    function showIdle(text){
+      var el = document.getElementById('res');
+      el.className = 'result';
+      el.innerHTML = '<div class="idle-row"><span class="ic">📷</span><span class="msg">' + text + '</span></div>';
+    }
+
+    function showResult(cls, titleMsg, person, contentHtml){
+      var el = document.getElementById('res');
+      el.className = 'result ' + (cls || '');
+      var h = '<div class="msg">' + titleMsg + '</div>';
+      if (person) {
+        h += '<div class="nm">' + person.이름 + ' 선생님 <small style="font-size:13px;font-weight:400;color:var(--sub)">(' + (person.소속지회||'') + '지회 · ' + (person.기관명||'') + ')</small></div>';
+      }
+      if (contentHtml) h += contentHtml;
+      h += '<div class="timer-bar hide" id="timerBar"></div>';
+      el.innerHTML = h;
+    }
+
+    function lockCameraForSeconds(sec){
+      isPaused = true;
+      document.getElementById('camOverlay').classList.remove('hide');
+
+      var bar = document.getElementById('timerBar');
+      if (bar) {
+        bar.classList.remove('hide');
+        bar.style.animation = 'none';
+        void bar.offsetWidth;
+        bar.style.animation = 'timer ' + sec + 's linear forwards';
+      }
+
+      if (lockTimer) clearTimeout(lockTimer);
+      lockTimer = setTimeout(unlockScan, sec * 1000);
+    }
+
+    function unlockScan(){
+      if (lockTimer) clearTimeout(lockTimer);
+      isPaused = false; isProcessing = false; lastScannedValue = '';
+      document.getElementById('camOverlay').classList.add('hide');
+      document.getElementById('dot').className = 'dot on';
+      showIdle('스캔 대기 중 (QR을 비춰주세요)');
+    }
+
+    var actx = null;
+    function getAudio(){
+      if (!actx) actx = new (window.AudioContext || window.webkitAudioContext)();
+      if (actx.state === 'suspended') actx.resume();
+      return actx;
+    }
+    function playBeep(freq, dur){
+      try {
+        var ctx = getAudio();
+        var o = ctx.createOscillator(), g = ctx.createGain();
+        o.type = 'sine'; o.frequency.value = freq;
+        g.gain.setValueAtTime(0.001, ctx.currentTime);
+        g.gain.exponentialRampToValueAtTime(0.28, ctx.currentTime + 0.01);
+        g.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + dur);
+        o.connect(g); g.connect(ctx.destination);
+        o.start(); o.stop(ctx.currentTime + dur + 0.02);
+      } catch(e){}
+    }
+    function soundSuccess(){
+      playBeep(880, 0.08); setTimeout(function(){ playBeep(1320, 0.1); }, 90); setTimeout(function(){ playBeep(1760, 0.14); }, 190);
+    }
+    function soundWarn(){ playBeep(554, 0.12); setTimeout(function(){ playBeep(440, 0.2); }, 130); }
+    function soundErr(){ playBeep(220, 0.3); }
+    function vibe(pattern){ try { if (navigator.vibrate) navigator.vibrate(pattern); } catch(e){} }
+
+    document.addEventListener('click', function once(){ getAudio(); document.removeEventListener('click', once); });
+
+    startCamera();
+  </script>
+</body>
+</html>
