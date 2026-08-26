@@ -1,133 +1,344 @@
-<!DOCTYPE html>
-<html lang="ko">
-<head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
-  <title>2026 사대회 현장 접수 스캐너</title>
-  <style>
-    :root {
-      --navy: #0f2f5c; --accent: #1f7ae0;
-      --ok: #0f9d58; --ok-bg: #0d281e; --ok-border: #2bb471;
-      --warn: #f29900; --warn-bg: #291e0a;
-      --err: #d93025; --err-bg: #291012;
-      --bg: #0d1420; --card: #151d2b; --line: #2b3646; --sub: #8b97a8;
-    }
-    * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
-    html, body { margin: 0; padding: 0; min-height: 100%; }
-    body {
-      background: var(--bg); color: #fff;
-      font-family: 'Pretendard', -apple-system, BlinkMacSystemFont, sans-serif;
-      font-size: 14.5px; line-height: 1.4;
-      -webkit-text-size-adjust: 100%;
-    }
-    .wrap {
-      max-width: 480px; margin: 0 auto; min-height: 100vh;
-      display: flex; flex-direction: column; padding-bottom: 20px;
+/*************************************************************************
+ * 01_메인.gs — 화면 라우팅 / 최초 1회 초기설정 / 시트 실시간 수동 동기화
+ *************************************************************************/
+
+/**
+ * 스프레드시트를 열면 상단에 [사대회 시스템] 메뉴가 생깁니다.
+ */
+function onOpen() {
+  SpreadsheetApp.getUi()
+    .createMenu('사대회 시스템')
+    .addItem('① 초기설정 실행', '초기설정')
+    .addSeparator()
+    .addItem('② 신청 화면 열기', '메뉴_신청화면')
+    .addItem('③ 알림톡 치환 미리보기', '메뉴_미리보기')
+    .addSeparator()
+    .addItem('현장 접수 스캐너 주소', '메뉴_스캐너')
+    .addItem('참가자 조회 주소', '메뉴_조회')
+    .addToUi();
+}
+
+function 메뉴_신청화면() { 주소창_(getWebAppUrl_(), '참가신청 화면'); }
+function 메뉴_미리보기() { 주소창_(getWebAppUrl_() + '?p=preview&k=' + CONFIG.STAFF_KEY, '알림톡 치환 미리보기'); }
+function 메뉴_스캐너()   { 주소창_(getWebAppUrl_() + '?p=scan&k=' + CONFIG.STAFF_KEY, '현장 접수 스캐너'); }
+function 메뉴_조회()     { 주소창_(getWebAppUrl_() + '?p=find&k=' + CONFIG.STAFF_KEY, '참가자 조회'); }
+
+function 주소창_(url, title) {
+  const ui = SpreadsheetApp.getUi();
+  if (!url) {
+    ui.alert('아직 웹앱이 배포되지 않았습니다.\n배포 → 새 배포 를 먼저 해주세요.');
+    return;
+  }
+  const html = HtmlService.createHtmlOutput(
+    '<div style="font-family:sans-serif;padding:18px 16px">' +
+    '<p style="margin:0 0 12px;font-size:13px;color:#555">아래 버튼으로 새 창에서 열거나, 주소를 복사해 쓰세요.</p>' +
+    '<a href="' + url + '" target="_blank" style="display:block;background:#16345C;color:#fff;' +
+    'text-align:center;padding:12px;border-radius:8px;text-decoration:none;font-weight:700">' +
+    title + ' 열기</a>' +
+    '<textarea readonly onclick="this.select()" style="width:100%;margin-top:12px;height:64px;' +
+    'font-size:12px;padding:8px;border:1px solid #ddd;border-radius:6px;box-sizing:border-box">' +
+    url + '</textarea></div>')
+    .setWidth(420).setHeight(210);
+  ui.showModalDialog(html, title);
+}
+
+
+/**
+ * 🌟 [실시간 동기화 트리거] 종합 시트 ↔ 지회 시트 수동 체크 'O' 자동 반영
+ */
+function onEdit(e) {
+  try {
+    if (!e || !e.range) return;
+    const sheet = e.range.getSheet();
+    const sheetName = sheet.getName();
+    const col = e.range.getColumn();
+    const row = e.range.getRow();
+    const numRows = e.range.getNumRows();
+
+    if (row < 2) return; // 헤더 제외
+
+    // 1) [종합] 시트의 J열(참석확인, 10열) 수정 시 -> 해당 지회 시트로 즉시 동기화
+    if (sheetName === CONFIG.MASTER_SHEET && col === COL.참석확인) {
+      const ss = e.source || SpreadsheetApp.getActiveSpreadsheet();
+      for (let r = row; r < row + numRows; r++) {
+        const val = String(sheet.getRange(r, COL.참석확인).getValue() || '').trim();
+        const isAttended = (val.toUpperCase() === 'O' || val === 'ㅇ' || val === 'o' || val === '0');
+        const mark = isAttended ? 'O' : (val === '' ? '' : val);
+
+        const token  = String(sheet.getRange(r, COL.토큰).getValue() || '').trim();
+        const branch = String(sheet.getRange(r, COL.소속지회).getValue() || '').trim();
+        if (!token || !branch) continue;
+
+        const bSheet = ss.getSheetByName(branch);
+        if (!bSheet || bSheet.getLastRow() < 2) continue;
+
+        // 참석시간 처리
+        const nowStamp = Utilities.formatDate(new Date(), 'Asia/Seoul', 'yyyy-MM-dd HH:mm:ss');
+        let curTime = String(sheet.getRange(r, COL.참석일시).getValue() || '').trim();
+        let timeToSet = '';
+        if (isAttended) {
+          timeToSet = curTime || nowStamp;
+          if (!curTime) sheet.getRange(r, COL.참석일시).setValue(timeToSet);
+        } else if (val === '') {
+          sheet.getRange(r, COL.참석일시).setValue('');
+        }
+
+        // 지회 시트에서 같은 토큰 찾아서 동기화
+        const bTokens = bSheet.getRange(2, COL.토큰, bSheet.getLastRow() - 1, 1).getValues();
+        for (let i = 0; i < bTokens.length; i++) {
+          if (String(bTokens[i][0]).trim() === token) {
+            bSheet.getRange(i + 2, COL.참석확인).setValue(mark);
+            bSheet.getRange(i + 2, COL.참석일시).setValue(timeToSet);
+            break;
+          }
+        }
+      }
     }
 
-    /* 상단 헤더 */
-    .top {
-      padding: 12px 16px; display: flex; align-items: center; gap: 8px;
-      border-bottom: 1px solid var(--line); background: #0b111b; position: sticky; top: 0; z-index: 100;
-    }
-    .dot { width: 10px; height: 10px; border-radius: 50%; background: #4b5666; }
-    .dot.on { background: #3ddc84; box-shadow: 0 0 0 4px rgba(61, 220, 132, 0.25); }
-    .dot.paused { background: #f29900; box-shadow: 0 0 0 4px rgba(242, 153, 0, 0.25); }
-    .top .t { font-weight: 800; font-size: 15px; }
-    .top .c { margin-left: auto; font-size: 13.5px; font-weight: 800; color: #3ddc84; }
+    // 2) [지회] 시트의 J열(참석확인) 수정 시 -> [종합] 시트로 역동기화
+    if (sheetName !== CONFIG.MASTER_SHEET && sheetName !== CONFIG.LOG_SHEET && col === COL.참석확인) {
+      const ss = e.source || SpreadsheetApp.getActiveSpreadsheet();
+      const mSheet = ss.getSheetByName(CONFIG.MASTER_SHEET);
+      if (!mSheet || mSheet.getLastRow() < 2) return;
 
-    .main-body { padding: 10px; display: flex; flex-direction: column; gap: 10px; }
+      for (let r = row; r < row + numRows; r++) {
+        const val = String(sheet.getRange(r, COL.참석확인).getValue() || '').trim();
+        const isAttended = (val.toUpperCase() === 'O' || val === 'ㅇ' || val === 'o' || val === '0');
+        const mark = isAttended ? 'O' : (val === '' ? '' : val);
 
-    /* 📸 대형 카메라 뷰파인더 */
-    .camwrap {
-      position: relative; background: #151d2b; border-radius: 14px;
-      width: 100%; height: 320px; max-height: 48vh; overflow: hidden; border: 1.5px solid var(--line);
-      display: flex; align-items: center; justify-content: center;
-    }
-    video { width: 100%; height: 100%; object-fit: cover; display: block; }
-    canvas { display: none; }
-    
-    .frame {
-      position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; pointer-events: none;
-    }
-    .frame i {
-      width: 65%; aspect-ratio: 1/1; border: 3px solid rgba(255, 255, 255, 0.9); border-radius: 18px;
-      box-shadow: 0 0 0 2000px rgba(0, 0, 0, 0.4);
-    }
-    .camhint {
-      position: absolute; left: 0; right: 0; bottom: 8px; text-align: center;
-      font-size: 12px; font-weight: 700; color: #fff; text-shadow: 0 1px 3px #000;
-    }
+        const token = String(sheet.getRange(r, COL.토큰).getValue() || '').trim();
+        if (!token) continue;
 
-    /* 🌟 카메라 상태 및 터치 시작 안내창 */
-    .cam-status {
-      position: absolute; inset: 0; background: #151d2b;
-      display: flex; flex-direction: column; align-items: center; justify-content: center;
-      padding: 20px; text-align: center; z-index: 10; gap: 10px;
-    }
-    .cam-status .icon { font-size: 38px; }
-    .cam-status .text { font-size: 15px; font-weight: 700; color: #c9d4e2; }
+        const nowStamp = Utilities.formatDate(new Date(), 'Asia/Seoul', 'yyyy-MM-dd HH:mm:ss');
+        let curTime = String(sheet.getRange(r, COL.참석일시).getValue() || '').trim();
+        let timeToSet = '';
+        if (isAttended) {
+          timeToSet = curTime || nowStamp;
+          if (!curTime) sheet.getRange(r, COL.참석일시).setValue(timeToSet);
+        } else if (val === '') {
+          sheet.getRange(r, COL.참석일시).setValue('');
+        }
 
-    .cam-overlay {
-      position: absolute; inset: 0; background: rgba(13, 20, 32, 0.88);
-      display: flex; align-items: center; justify-content: center; font-weight: 800; font-size: 16px;
-      color: #3ddc84; z-index: 5;
+        const mTokens = mSheet.getRange(2, COL.토큰, mSheet.getLastRow() - 1, 1).getValues();
+        for (let i = 0; i < mTokens.length; i++) {
+          if (String(mTokens[i][0]).trim() === token) {
+            mSheet.getRange(i + 2, COL.참석확인).setValue(mark);
+            mSheet.getRange(i + 2, COL.참석일시).setValue(timeToSet);
+            break;
+          }
+        }
+      }
     }
+  } catch (err) {
+    console.error('onEdit Error:', err);
+  }
+}
 
-    /* 🌟 슬림 결과 표시창 */
-    .result {
-      position: relative;
-      padding: 12px 14px; text-align: center; min-height: 80px; display: flex;
-      flex-direction: column; justify-content: center; background: var(--card);
-      border: 1.5px solid var(--line); border-radius: 12px;
-      transition: all 0.25s ease-out; overflow: hidden;
-    }
-    .result.pop { animation: pop 0.3s ease-out; }
-    @keyframes pop {
-      0% { transform: scale(0.97); }
-      50% { transform: scale(1.01); }
-      100% { transform: scale(1); }
+
+/**
+ * 웹앱 진입점
+ */
+function doGet(e) {
+  const p = (e && e.parameter && e.parameter.p) || 'apply';
+
+  try {
+    if (p === 'api')  return apiRouter_(e);
+
+    if (p === 'qr') {
+      const t = tpl_('11_QR');
+      t.data = getQrPageData_((e.parameter.t || '').trim());
+      return render_(t, CONFIG.EVENT_TITLE + ' 입장 QR');
     }
 
-    .result .idle-row { display: flex; align-items: center; justify-content: center; gap: 8px; color: var(--sub); font-weight: 700; }
-    .result .idle-row .ic { font-size: 22px; }
-    .result .idle-row .msg { font-size: 15px; color: #b0bccd; }
-
-    .result .msg { font-size: 19px; font-weight: 900; letter-spacing: -0.3px; }
-    .result .nm { font-size: 18px; font-weight: 900; margin-top: 4px; color: #fff; }
-    .result .sub { font-size: 13px; color: var(--sub); margin-top: 2px; }
-
-    .result.ok { border-color: var(--ok-border); background: var(--ok-bg); }
-    .result.ok .msg { color: #3ddc84; }
-    .result.warn { border-color: var(--warn); background: var(--warn-bg); }
-    .result.warn .msg { color: #ffc94d; }
-    .result.err { border-color: var(--err); background: var(--err-bg); }
-    .result.err .msg { color: #ff6b5e; }
-
-    .chips {
-      display: grid; grid-template-columns: 1fr 1fr; gap: 8px;
-      margin-top: 8px; padding-top: 8px; border-top: 1px dashed rgba(255,255,255,0.15);
+    if (p === 'scan') {
+      if (!checkStaffKey_(e)) return denied_();
+      const t = tpl_('12_스캐너');
+      t.staffKey = CONFIG.STAFF_KEY;
+      return render_(t, '현장 접수 스캐너');
     }
-    .badge-box {
-      background: rgba(255,255,255,0.06); border-radius: 8px; padding: 6px; text-align: center;
-      border: 1px solid rgba(255,255,255,0.1);
+
+    if (p === 'find') {
+      if (!checkStaffKey_(e)) return denied_();
+      const t = tpl_('14_조회');
+      t.staffKey = CONFIG.STAFF_KEY;
+      return render_(t, '참가자 조회');
     }
-    .badge-box.seat { border-color: rgba(77, 163, 255, 0.4); background: rgba(31, 122, 224, 0.15); }
-    .badge-box.ticket { border-color: rgba(61, 220, 132, 0.4); background: rgba(15, 157, 88, 0.15); }
-    .badge-label { font-size: 11px; color: #9aa7b8; font-weight: 600; }
-    .badge-value { font-size: 18px; font-weight: 900; line-height: 1.15; margin-top: 1px; }
-    .badge-box.seat .badge-value { color: #5eb2ff; }
-    .badge-box.ticket .badge-value { color: #43e68c; }
 
-    .time-stamp { font-size: 11.5px; color: #8b97a8; margin-top: 4px; }
-
-    .timer-bar {
-      position: absolute; bottom: 0; left: 0; height: 3.5px; background: #3ddc84;
-      width: 100%; transform-origin: left;
+    if (p === 'preview') {
+      if (!checkStaffKey_(e)) return denied_();
+      const t = tpl_('15_미리보기');
+      t.staffKey = CONFIG.STAFF_KEY;
+      t.branches = BRANCHES;
+      return render_(t, '알림톡 치환 미리보기');
     }
-    .timer-bar.running { animation: timer 6s linear forwards; }
-    @keyframes timer { from { transform: scaleX(1); } to { transform: scaleX(0); } }
 
-    .btn-next {
-      background: #1f7ae0; color: #fff; border: 0;
-      border-radius: 8px; padding
+    // 기본: 신청 화면
+    const t = tpl_('10_신청');
+    t.branches     = BRANCHES.map(function (b) { return b.name || b; });
+    t.eventTitle   = CONFIG.EVENT_TITLE;
+    t.templateUrl  = templateDownloadUrl_();
+    t.openState    = openState_();
+    return render_(t, CONFIG.EVENT_TITLE + ' ' + CONFIG.EVENT_SUBTITLE);
+
+  } catch (err) {
+    return HtmlService.createHtmlOutput(
+      '<div style="font-family:sans-serif;padding:40px;text-align:center">' +
+      '<h3>일시적인 오류가 발생했습니다</h3><p style="color:#888">' +
+      escapeHtml_(String(err)) + '</p></div>');
+  }
+}
+
+/** 외부(GitHub Pages 등)에서 POST 로 호출할 때 */
+function doPost(e) {
+  return apiRouter_(e);
+}
+
+
+/* ── 라우팅 도우미 ─────────────────────────────────────────── */
+
+function tpl_(file) { return HtmlService.createTemplateFromFile(file); }
+
+function render_(t, title) {
+  return t.evaluate()
+    .setTitle(title)
+    .addMetaTag('viewport', 'width=device-width, initial-scale=1, maximum-scale=1, viewport-fit=cover')
+    .setXFrameOptionsMode(HtmlService.XFrameOptionsMode.ALLOWALL);
+}
+
+function checkStaffKey_(e) {
+  const k = (e && e.parameter && e.parameter.k) || '';
+  return k === CONFIG.STAFF_KEY;
+}
+
+function denied_() {
+  return HtmlService.createHtmlOutput(
+    '<div style="font-family:sans-serif;padding:60px 20px;text-align:center">' +
+    '<div style="font-size:44px">🔒</div>' +
+    '<h3 style="margin:12px 0 4px">접근 권한이 없습니다</h3>' +
+    '<p style="color:#888;font-size:14px">직원용 주소로 접속해 주세요.</p></div>');
+}
+
+function getWebAppUrl_() {
+  const saved = PROP_('WEB_APP_URL');
+  if (saved) return saved;
+  return ScriptApp.getService().getUrl();
+}
+
+function templateDownloadUrl_() {
+  if (!CONFIG.TEMPLATE_FILE_ID) return '';
+  return 'https://drive.google.com/uc?export=download&id=' + CONFIG.TEMPLATE_FILE_ID;
+}
+
+function openState_() {
+  const now = new Date();
+  if (CONFIG.OPEN_AT) {
+    const s = parseKst_(CONFIG.OPEN_AT);
+    if (s && now < s) return { open: false, msg: '아직 신청 기간이 아닙니다. (' + CONFIG.OPEN_AT + ' 오픈)' };
+  }
+  if (CONFIG.CLOSE_AT) {
+    const t = parseKst_(CONFIG.CLOSE_AT);
+    if (t && now > t) return { open: false, msg: '신청이 마감되었습니다.' };
+  }
+  return { open: true, msg: '' };
+}
+
+function parseKst_(s) {
+  const m = String(s).match(/^(\d{4})-(\d{2})-(\d{2})[ T](\d{2}):(\d{2})/);
+  if (!m) return null;
+  return new Date(+m, +m - 1, +m, +m, +m, 0);
+}
+
+
+/*************************************************************************
+ * ★ 최초 1회 실행 ★
+ *************************************************************************/
+function 초기설정() {
+  const ss = SpreadsheetApp.openById(CONFIG.SPREADSHEET_ID);
+
+  const names = [CONFIG.MASTER_SHEET].concat(
+    BRANCHES.map(function (b) { return b.name || b; })
+  );
+
+  names.forEach(function (name) {
+    let sh = ss.getSheetByName(name);
+    if (!sh) {
+      if (name === CONFIG.MASTER_SHEET) {
+        sh = ss.insertSheet(name);
+      } else if (CONFIG.AUTO_CREATE_BRANCH_SHEET) {
+        sh = ss.insertSheet(name);
+      } else {
+        return;
+      }
+    }
+    prepareSheet_(sh);
+  });
+
+  let log = ss.getSheetByName(CONFIG.LOG_SHEET);
+  if (!log) {
+    log = ss.insertSheet(CONFIG.LOG_SHEET);
+    log.getRange(1, 1, 1, 7)
+       .setValues([['시각', '구분', '이름', '연락처', '템플릿', '결과', '메시지']])
+       .setFontWeight('bold');
+    log.setFrozenRows(1);
+  }
+
+  const seq = syncTicketCounter_();
+
+  try {
+    const url = ScriptApp.getService().getUrl();
+    if (url) PropertiesService.getScriptProperties().setProperty('WEB_APP_URL', url);
+  } catch (ignore) {}
+
+  SpreadsheetApp.flush();
+
+  const msg = '초기설정 완료\n\n' +
+    '· 정리한 시트: ' + names.join(', ') + '\n' +
+    '· 다음 응모권 번호: ' + (seq + 1) + '번\n' +
+    '· 웹앱 주소: ' + (getWebAppUrl_() || '(배포 후 자동 등록)');
+  Logger.log(msg);
+  return msg;
+}
+
+function prepareSheet_(sh) {
+  sh.getRange(1, 1, 1, LAST_COL).setValues([HEADERS])
+    .setFontWeight('bold')
+    .setHorizontalAlignment('center')
+    .setBackground('#f1f3f4');
+  sh.setFrozenRows(1);
+
+  const rows = Math.max(sh.getMaxRows() - 1, 1);
+  [COL.생년월일, COL.연락처, COL.접수번호, COL.토큰].forEach(function (c) {
+    sh.getRange(2, c, rows, 1).setNumberFormat('@');
+  });
+  sh.getRange(2, COL.응모권, rows, 1).setNumberFormat('0');
+
+  try {
+    sh.setColumnWidth(COL.이름, 90);
+    sh.setColumnWidth(COL.생년월일, 90);
+    sh.setColumnWidth(COL.연락처, 120);
+    sh.setColumnWidth(COL.기관명, 200);
+    sh.setColumnWidth(COL.소속지회, 90);
+    sh.setColumnWidth(COL.신청형태, 100);
+    sh.setColumnWidth(COL.QR, 260);
+    sh.setColumnWidth(COL.토큰, 170);
+    sh.setColumnWidth(COL.신청일시, 140);
+    sh.setColumnWidth(COL.참석일시, 140);
+  } catch (ignore) {}
+
+  try {
+    const rng = sh.getRange(2, COL.참석확인, rows, 1);
+    const rule = SpreadsheetApp.newConditionalFormatRule()
+      .whenTextEqualTo('O')
+      .setBackground('#d9ead3')
+      .setFontColor('#137333')
+      .setBold(true)
+      .setRanges([rng])
+      .build();
+    const rules = sh.getConditionalFormatRules().filter(function (r) {
+      return r.getRanges()[0].getColumn() !== COL.참석확인;
+    });
+    rules.push(rule);
+    sh.setConditionalFormatRules(rules);
+    rng.setHorizontalAlignment('center');
+  } catch (ignore) {}
+}
