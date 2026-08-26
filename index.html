@@ -65,6 +65,23 @@ var HOLD_MS = 5000;   // 접수 결과를 화면에 유지하는 시간 (5초)
   .chip{background:rgba(255,255,255,.2);border-radius:999px;padding:9px 16px;font-size:14px;font-weight:600}
   .chip b{font-size:22px;font-weight:800}
 
+  /* 동명이인 고르기 */
+  .res.pick{background:#16233a;text-align:left;padding:16px 14px 14px}
+  .pickhead{text-align:center;margin-bottom:12px}
+  .pickhead .t{font-size:21px;font-weight:800;color:#ffc94d}
+  .pickhead .s{font-size:13.5px;color:#9aa7b8;margin-top:4px}
+  .cands{display:grid;gap:8px;max-height:44vh;overflow-y:auto;-webkit-overflow-scrolling:touch}
+  .cand{display:block;width:100%;text-align:left;background:#1e2c44;border:1px solid #33455f;
+        border-radius:12px;padding:13px 15px;color:#fff;font-family:inherit;cursor:pointer}
+  .cand:active{background:#27395a}
+  .cand .l1{font-size:17px;font-weight:800;display:flex;align-items:center;gap:8px}
+  .cand .l1 em{font-style:normal;font-size:12px;font-weight:700;background:#0f9d58;
+               border-radius:5px;padding:2px 7px}
+  .cand .l1 em.done{background:#e8a33d;color:#3a2a00}
+  .cand .l2{font-size:13.5px;color:#a9b7c9;margin-top:5px;line-height:1.5}
+  .cand .l2 b{color:#fff;font-weight:700}
+  .cancel{width:100%;margin-top:10px;background:#26344a;color:#c9d4e2;padding:12px;font-size:14px}
+
   /* 5초 카운트 막대 */
   .hold{position:absolute;left:0;bottom:0;height:4px;background:rgba(255,255,255,.55);width:0}
   .hold.run{animation:shrink var(--hold,5s) linear forwards}
@@ -133,7 +150,7 @@ var HOLD_MS = 5000;   // 접수 결과를 화면에 유지하는 시간 (5초)
 
     <div class="bar">
       <div class="row">
-        <input type="text" id="manual" placeholder="접수번호 · 이름 · 연락처로 접수" autocomplete="off">
+        <input type="text" id="manual" placeholder="접수번호(R00002) · 연락처 · 이름" autocomplete="off">
         <button class="b1" onclick="manualCheck()">확인</button>
       </div>
 
@@ -149,6 +166,7 @@ var HOLD_MS = 5000;   // 접수 결과를 화면에 유지하는 시간 (5초)
       </div>
 
       <div class="note">
+        이름은 동명이인이 많습니다. <b>접수번호나 연락처</b>가 가장 정확합니다.<br>
         명단에 없으면 <b>노트북 담당 직원</b>에게 안내하세요.
       </div>
     </div>
@@ -262,6 +280,11 @@ function render(r){
     show('warn','⚠','이미 참석확인된 QR입니다', r.person, chips(r.person),
          '앞서 접수된 분입니다. 본인이 맞는지 확인해 주세요.');
 
+  } else if (r.code === 'MULTI'){
+    beep(660,.12); vibe([60]);
+    showPick(r.list);
+    return;                       // 직원이 고를 때까지 화면을 유지합니다
+
   } else if (r.code === 'NOT_FOUND'){
     beep(220,.45); vibe([200,100,200]);
     show('err','✕','확인 불가', null, null,
@@ -299,6 +322,55 @@ function show(cls, ic, msg, person, chipHtml, sub){
   if (chipHtml) h += chipHtml;
   h += '<div class="hold" id="hold"></div>';
   el.innerHTML = h;
+}
+
+/* 동명이인 — 직원이 직접 고르는 화면 (자동으로 사라지지 않습니다) */
+function showPick(list){
+  clearHold();
+  busy = true;                       // 고르는 동안 카메라 인식 잠시 멈춤
+
+  var h = '<div class="pickhead">' +
+          '<div class="t">누구신가요?</div>' +
+          '<div class="s">같은 조건에 ' + list.length + '명이 있습니다. 본인에게 확인하고 골라주세요.</div>' +
+          '</div><div class="cands">';
+
+  list.forEach(function(p, i){
+    var done = String(p.참석확인 || '').toUpperCase() === 'O';
+    h += '<button class="cand" onclick="pickOne(' + i + ')">' +
+           '<div class="l1">' + esc(p.이름) +
+             (done ? '<em class="done">접수완료</em>' : '<em>대기</em>') +
+           '</div>' +
+           '<div class="l2">' +
+             '생년월일 <b>' + esc(p.생년월일 || '-') + '</b> · ' +
+             '연락처 뒷자리 <b>' + esc(p.연락처뒤 || '-') + '</b><br>' +
+             esc(p.기관명 || '-') + ' · ' + esc(p.소속지회 || '') + ' · ' +
+             '접수번호 <b>' + esc(p.접수번호 || '-') + '</b>' +
+           '</div>' +
+         '</button>';
+  });
+
+  h += '</div><button class="cancel" onclick="cancelPick()">취소</button>';
+
+  var el = document.getElementById('res');
+  el.className = 'res pick';
+  el.innerHTML = h;
+
+  window.__cands = list;
+}
+
+function pickOne(i){
+  var p = (window.__cands || [])[i];
+  if (!p || !p.토큰) return;
+  busy = false;
+  lastCode = '';
+  handle(p.토큰);
+}
+
+function cancelPick(){
+  window.__cands = null;
+  busy = false;
+  lastCode = '';
+  idle();
 }
 
 /* 결과를 5초 보여준 뒤 대기 화면으로 돌아갑니다 */
