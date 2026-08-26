@@ -17,7 +17,7 @@
 var WEBAPP_URL = 'https://script.google.com/macros/s/AKfycbztTWFK3i3F3sjXkeZujNA53ZSnZet_QKWyGIi9cwhVcrFrgPW1gu4FsklnXtqceQdl/exec';
 var STAFF_KEY  = 'swc2026';
 
-var HOLD_MS = 5000;   // 접수 결과를 화면에 유지하는 시간 (5초)
+var HOLD_MS = 7000;   // 접수 결과를 화면에 유지하는 시간 (7초)
 </script>
 
 <style>
@@ -82,7 +82,13 @@ var HOLD_MS = 5000;   // 접수 결과를 화면에 유지하는 시간 (5초)
   .cand .l2 b{color:#fff;font-weight:700}
   .cancel{width:100%;margin-top:10px;background:#26344a;color:#c9d4e2;padding:12px;font-size:14px}
 
-  /* 5초 카운트 막대 */
+  /* 다음 사람 스캔 버튼 */
+  .nextbtn{display:block;width:100%;margin-top:16px;padding:16px;border-radius:12px;
+           background:rgba(255,255,255,.93);color:#16233a;font-size:18px;font-weight:800;
+           border:0;font-family:inherit;cursor:pointer}
+  .nextbtn:active{background:#fff}
+
+  /* 남은 시간 막대 */
   .hold{position:absolute;left:0;bottom:0;height:4px;background:rgba(255,255,255,.55);width:0}
   .hold.run{animation:shrink var(--hold,5s) linear forwards}
   @keyframes shrink{from{width:100%}to{width:0}}
@@ -246,8 +252,8 @@ function handle(raw){
   show('', '⏳', '확인 중...', null, null, null);
 
   callApi({ a:'checkin', t: raw }, function(r){
-    render(r);
-    busy = false;
+    render(r);          // render 안에서 스캔 멈춤/재개를 관리합니다
+    // 참석 처리가 끝나면 알림톡을 곧바로 따로 요청합니다.
     if (r && r.ok && r.needTalk){
       var tk = (r.person && r.person.토큰) ? r.person.토큰 : raw;
       callApi({ a:'talk', t: tk }, function(){}, function(){});
@@ -255,7 +261,6 @@ function handle(raw){
   }, function(msg){
     show('err','⚠','통신 오류', null, null, msg + '\n인터넷을 확인하고 다시 찍어주세요.');
     startHold();
-    busy = false;
   });
 }
 
@@ -375,21 +380,42 @@ function cancelPick(){
   idle();
 }
 
-/* 결과를 5초 보여준 뒤 대기 화면으로 돌아갑니다 */
+/* 결과를 보여주는 동안 자동 스캔을 멈춥니다.
+   [다음 사람 스캔] 을 누르거나 7초가 지나면 다시 시작합니다. */
 function startHold(){
   clearHold();
+  busy = true;                       // 직원이 결과를 읽는 동안 스캔 정지
+
+  var el = document.getElementById('res');
+  var b = document.createElement('button');
+  b.className = 'nextbtn';
+  b.textContent = '다음 사람 스캔 >';
+  b.onclick = nextPerson;
+  el.appendChild(b);
+
   var bar = document.getElementById('hold');
   if (bar){
     bar.style.setProperty('--hold', (HOLD_MS/1000) + 's');
     bar.classList.add('run');
   }
-  holdTimer = setTimeout(idle, HOLD_MS);
+  holdTimer = setTimeout(nextPerson, HOLD_MS);
 }
+
 function clearHold(){
   if (holdTimer){ clearTimeout(holdTimer); holdTimer = null; }
 }
+
+/* 다시 스캔 시작 */
+function nextPerson(){
+  clearHold();
+  busy = false;
+  lastCode = '';
+  idle();
+}
+
 function idle(){
   clearHold();
+  busy = false;
   show('', '▣', live ? '대기 중 — QR을 갖다 대세요' : '사진으로 접수하세요', null, null, null);
 }
 
@@ -421,9 +447,7 @@ function onScanFile(input){
         code = (typeof jsQR === 'function')
           ? jsQR(d.data, d.width, d.height, { inversionAttempts:'attemptBoth' }) : null;
       }
-      busy = false;
-
-      if (code && code.data){ lastCode = ''; handle(code.data); }
+      if (code && code.data){ busy = false; lastCode = ''; handle(code.data); }
       else {
         beep(220,.3);
         show('err','✕','QR 인식 실패', null, null,
