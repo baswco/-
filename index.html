@@ -45,6 +45,13 @@ var HOLD_MS = 7000;   // 접수 결과를 화면에 유지하는 시간 (7초)
            box-shadow:0 0 0 2000px rgba(0,0,0,.32)}
   .camhint{position:absolute;left:0;right:0;bottom:10px;text-align:center;font-size:13px;
            color:rgba(255,255,255,.9);text-shadow:0 1px 4px #000;pointer-events:none}
+  /* 앞·뒤 카메라 전환 단추 (카메라 화면 오른쪽 위) */
+  .flipbtn{position:absolute;top:10px;right:10px;z-index:5;
+           background:rgba(0,0,0,.5);border:1.5px solid rgba(255,255,255,.55);
+           color:#fff;border-radius:999px;padding:9px 15px;font-size:14px;font-weight:700;
+           font-family:inherit;line-height:1;backdrop-filter:blur(3px)}
+  .flipbtn:active{background:rgba(0,0,0,.75)}
+  video.mirror{transform:scaleX(-1)}
   .camerr{padding:24px 20px;text-align:center;color:#ffc94d;font-size:14px;line-height:1.7;flex:1}
   .camerr b{color:#fff}
 
@@ -144,6 +151,7 @@ var HOLD_MS = 7000;   // 접수 결과를 화면에 유지하는 시간 (7초)
       <video id="v" playsinline muted autoplay></video>
       <canvas id="cv"></canvas>
       <div class="frame"><i></i></div>
+      <button class="flipbtn" id="flipBtn" onclick="flipCam()">앞뒤 전환</button>
       <div class="camhint">QR을 네모 안에 갖다 대세요</div>
     </div>
     <div class="camerr hide" id="camerr"></div>
@@ -167,6 +175,7 @@ var HOLD_MS = 7000;   // 접수 결과를 화면에 유지하는 시간 (7초)
       <input type="file" id="fileCam" accept="image/*" capture="environment" class="hide" onchange="onScanFile(this)">
 
       <div class="links">
+        <button onclick="flipCam()">앞뒤 카메라 전환</button>
         <button onclick="restartLive()">카메라 다시 시작</button>
         <button onclick="document.getElementById('fileCam').click()">사진으로 찍기</button>
       </div>
@@ -464,29 +473,62 @@ function onScanFile(input){
 /* ═════════ 실시간 카메라 (열자마자 자동 시작) ═════════ */
 var stream = null, raf = null, live = false, v, cv, ctx;
 
+/* 어느 쪽 카메라를 쓸지 — environment=뒷면(기본), user=앞면(셀피)
+   한 번 고르면 그 폰에 기억되어 다음에 열 때도 그대로 켜집니다. */
+var facing = 'environment';
+try { facing = localStorage.getItem('swc_facing') || 'environment'; } catch(e){}
+
+function flipCam(){
+  facing = (facing === 'environment') ? 'user' : 'environment';
+  try { localStorage.setItem('swc_facing', facing); } catch(e){}
+  restartLive();
+}
+
+function paintFlipBtn(){
+  var b = document.getElementById('flipBtn');
+  if (b) b.textContent = (facing === 'environment') ? '앞면으로' : '뒷면으로';
+  var vi = document.getElementById('v');
+  if (vi) vi.classList.toggle('mirror', facing === 'user');   // 앞면은 거울처럼 보이게
+}
+
 function startLive(){
   v   = document.getElementById('v');
   cv  = document.getElementById('cv');
   ctx = cv.getContext('2d', { willReadFrequently: true });
+  paintFlipBtn();
 
   if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia){
     return camFail('이 브라우저는 카메라를 지원하지 않습니다');
   }
-  navigator.mediaDevices.getUserMedia({
-    video: { facingMode: { ideal:'environment' }, width:{ideal:1280}, height:{ideal:1280} },
-    audio: false
-  }).then(function(s){
-    stream = s; v.srcObject = s; v.setAttribute('playsinline','');
-    return v.play();
-  }).then(function(){
-    live = true;
-    document.getElementById('dot').classList.add('on');
-    document.getElementById('camwrap').classList.remove('hide');
-    document.getElementById('camerr').classList.add('hide');
-    document.getElementById('shootBtn').classList.add('hide');
-    idle();
-    loop();
-  }).catch(function(e){ camFail(e && e.name ? e.name : String(e)); });
+
+  function ask(mode, exact){
+    return navigator.mediaDevices.getUserMedia({
+      video: {
+        facingMode: exact ? { exact: mode } : { ideal: mode },
+        width:{ideal:1280}, height:{ideal:1280}
+      },
+      audio: false
+    });
+  }
+
+  /* 앞면은 exact 로 요청해야 확실히 앞면이 켜집니다.
+     그런데 앞면이 하나뿐인 기기에서는 exact 가 실패할 수 있어,
+     실패하면 ideal 로 한 번 더 시도합니다. */
+  ask(facing, facing === 'user')
+    .catch(function(){ return ask(facing, false); })
+    .then(function(s){
+      stream = s; v.srcObject = s; v.setAttribute('playsinline','');
+      return v.play();
+    }).then(function(){
+      live = true;
+      paintFlipBtn();
+      document.getElementById('dot').classList.add('on');
+      document.getElementById('camwrap').classList.remove('hide');
+      document.getElementById('camerr').classList.add('hide');
+      document.getElementById('shootBtn').classList.add('hide');
+      idle();
+      loop();
+    }).catch(function(e){ camFail(e && e.name ? e.name : String(e)); });
 }
 
 function restartLive(){
